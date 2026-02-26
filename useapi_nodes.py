@@ -894,6 +894,55 @@ class UseapiRunwayImageUpscaler:
         return (tensor,)
 
 
+# ── Node 13: Load Video Frame ─────────────────────────────────────────────────
+class UseapiLoadVideoFrame:
+    """Extract a specific frame from a video file as a ComfyUI IMAGE tensor.
+
+    Requires opencv-python: pip install opencv-python
+    Enables chaining: generate video → extract frame → use in next generation.
+    """
+
+    CATEGORY = "Useapi.net/Utils"
+    FUNCTION = "execute"
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("image",)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "video_path": ("STRING", {"default": ""}),
+                "frame_number": ("INT", {"default": 0, "min": 0, "max": 99999}),
+            }
+        }
+
+    def execute(self, video_path: str, frame_number: int):
+        if not _CV2_AVAILABLE:
+            raise RuntimeError(
+                f"{LOG} UseapiLoadVideoFrame requires opencv-python. "
+                "Install it: pip install opencv-python"
+            )
+        cap = cv2.VideoCapture(video_path)
+        try:
+            if not cap.isOpened():
+                raise RuntimeError(f"{LOG} Cannot open video file: {video_path}")
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+            ret, frame = cap.read()
+            if not ret:
+                total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                raise RuntimeError(
+                    f"{LOG} Could not read frame {frame_number} from {video_path}. "
+                    f"Video has {total} frames."
+                )
+        finally:
+            cap.release()
+
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        tensor = torch.from_numpy(rgb.astype(np.float32) / 255.0).unsqueeze(0)
+        print(f"{LOG} Load Video Frame: frame {frame_number} extracted. Shape={tensor.shape}")
+        return (tensor,)
+
+
 # ── ComfyUI Registration ──────────────────────────────────────────────────────
 NODE_CLASS_MAPPINGS = {
     "UseapiTokenFromEnv":             UseapiTokenFromEnv,
@@ -908,6 +957,7 @@ NODE_CLASS_MAPPINGS = {
     "UseapiRunwayVideoToVideo":       UseapiRunwayVideoToVideo,
     "UseapiRunwayFramesGenerate":     UseapiRunwayFramesGenerate,
     "UseapiRunwayImageUpscaler":      UseapiRunwayImageUpscaler,
+    "UseapiLoadVideoFrame":           UseapiLoadVideoFrame,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "UseapiTokenFromEnv":             "Useapi Token From Env",
@@ -922,4 +972,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "UseapiRunwayVideoToVideo":       "Useapi Runway Video-to-Video",
     "UseapiRunwayFramesGenerate":     "Useapi Runway Frames Generate Image",
     "UseapiRunwayImageUpscaler":      "Useapi Runway Image Upscaler",
+    "UseapiLoadVideoFrame":           "Useapi Load Video Frame",
 }
