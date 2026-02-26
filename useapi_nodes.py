@@ -470,6 +470,65 @@ class UseapiGoogleFlowGenerateImage:
         return (image_tensor, urls[0], first_media_gen_id, json.dumps(urls))
 
 
+# ── Node 6: Google Flow Upload Asset ─────────────────────────────────────────
+class UseapiGoogleFlowUploadAsset:
+    """Upload an image to Google Flow for use as a reference image.
+
+    Returns mediaGenerationId usable as reference_1/2/3 in image generation,
+    or as an image reference for Veo video generation.
+    Email is required (path parameter in the API URL).
+    """
+
+    CATEGORY = "Useapi.net/Google Flow"
+    FUNCTION = "execute"
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("media_generation_id",)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "email": ("STRING", {"default": ""}),
+            },
+            "optional": {
+                "api_token": ("STRING", {"default": ""}),
+            },
+        }
+
+    def execute(self, image: torch.Tensor, email: str, api_token: str = ""):
+        token = _get_token(api_token)
+        email_clean = email.strip()
+        if not email_clean:
+            raise ValueError(f"{LOG} Google Flow Upload Asset requires an email address.")
+
+        url = f"{BASE_URL}/google-flow/assets/{urllib.parse.quote(email_clean, safe='')}"
+        png_bytes = _tensor_to_png_bytes(image)
+        files = {"image": ("upload.png", png_bytes, "image/png")}
+        body, ct = _build_multipart({}, files)
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": ct}
+
+        print(f"{LOG} Google Flow Upload Asset: uploading for {email_clean}...")
+        status, raw = _make_request(url, "POST", headers, body, timeout=60)
+        data = _check_status(status, raw, url, "Google Flow upload asset")
+
+        # mediaGenerationId may be at root or nested under media[0].image.generatedImage
+        media_gen_id = data.get("mediaGenerationId", "")
+        if not media_gen_id:
+            media_gen_id = (
+                data.get("media", [{}])[0]
+                .get("image", {})
+                .get("generatedImage", {})
+                .get("mediaGenerationId", "")
+            )
+        if not media_gen_id:
+            raise RuntimeError(
+                f"{LOG} Google Flow Upload Asset: no mediaGenerationId in response: {data}"
+            )
+        print(f"{LOG} Google Flow Upload Asset: mediaGenerationId={media_gen_id[:50]}...")
+        return (media_gen_id,)
+
+
 # ── ComfyUI Registration ──────────────────────────────────────────────────────
 NODE_CLASS_MAPPINGS = {
     "UseapiTokenFromEnv":            UseapiTokenFromEnv,
@@ -477,6 +536,7 @@ NODE_CLASS_MAPPINGS = {
     "UseapiVeoUpscale":              UseapiVeoUpscale,
     "UseapiVeoExtend":               UseapiVeoExtend,
     "UseapiGoogleFlowGenerateImage": UseapiGoogleFlowGenerateImage,
+    "UseapiGoogleFlowUploadAsset":   UseapiGoogleFlowUploadAsset,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "UseapiTokenFromEnv":            "Useapi Token From Env",
@@ -484,4 +544,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "UseapiVeoUpscale":              "Useapi Veo Upscale Video",
     "UseapiVeoExtend":               "Useapi Veo Extend Video",
     "UseapiGoogleFlowGenerateImage": "Useapi Google Flow Generate Image",
+    "UseapiGoogleFlowUploadAsset":   "Useapi Google Flow Upload Asset",
 }
