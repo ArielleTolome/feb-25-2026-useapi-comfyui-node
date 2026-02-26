@@ -384,16 +384,104 @@ class UseapiVeoExtend:
         return (video_url, video_path, media_gen_id)
 
 
+# ── Node 5: Google Flow Generate Image ───────────────────────────────────────
+class UseapiGoogleFlowGenerateImage:
+    """Generate images using Imagen 4, Nano Banana, or Nano Banana Pro.
+
+    Server-side auto-poll: returns in ~10-20s. Timeout: 120s.
+    Outputs first image as a ComfyUI IMAGE tensor; all URLs as JSON string.
+    media_generation_id can feed into VeoGenerate or be used as a reference image.
+    """
+
+    CATEGORY = "Useapi.net/Google Flow"
+    FUNCTION = "execute"
+    RETURN_TYPES = ("IMAGE", "STRING", "STRING", "STRING")
+    RETURN_NAMES = ("image", "image_url", "media_generation_id", "all_urls")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "prompt": ("STRING", {"multiline": True, "default": ""}),
+                "model": (["imagen-4", "nano-banana", "nano-banana-pro"],),
+                "aspect_ratio": (["landscape", "portrait"],),
+            },
+            "optional": {
+                "api_token": ("STRING", {"default": ""}),
+                "email": ("STRING", {"default": ""}),
+                "count": ("INT", {"default": 4, "min": 1, "max": 4}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 4294967294}),
+                "reference_1": ("STRING", {"default": ""}),
+                "reference_2": ("STRING", {"default": ""}),
+                "reference_3": ("STRING", {"default": ""}),
+            },
+        }
+
+    def execute(self, prompt: str, model: str, aspect_ratio: str,
+                api_token: str = "", email: str = "", count: int = 4,
+                seed: int = 0, reference_1: str = "",
+                reference_2: str = "", reference_3: str = ""):
+        token = _get_token(api_token)
+        url = f"{BASE_URL}/google-flow/images"
+        body = {
+            "prompt": prompt,
+            "model": model,
+            "aspectRatio": aspect_ratio,
+            "count": count,
+        }
+        if seed != 0:
+            body["seed"] = seed
+        if email.strip():
+            body["email"] = email.strip()
+        for i, ref in enumerate([reference_1, reference_2, reference_3], start=1):
+            if ref.strip():
+                body[f"reference_{i}"] = ref.strip()
+
+        print(f"{LOG} Google Flow Image: model={model}, count={count}, prompt='{prompt[:60]}'")
+        headers = _auth_headers(token)
+        status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=120)
+        data = _check_status(status, raw, url, "Google Flow generate image")
+
+        media_list = data.get("media", [])
+        if not media_list:
+            raise RuntimeError(f"{LOG} Google Flow image: no media in response: {data}")
+
+        urls = []
+        first_media_gen_id = ""
+        for i, m in enumerate(media_list):
+            gen_img = m.get("image", {}).get("generatedImage", {})
+            fife_url = gen_img.get("fifeUrl", "")
+            if fife_url:
+                urls.append(fife_url)
+            if i == 0:
+                first_media_gen_id = gen_img.get("mediaGenerationId", "")
+
+        if not urls:
+            raise RuntimeError(f"{LOG} Google Flow image: no fifeUrls found in response: {data}")
+
+        print(f"{LOG} Google Flow Image: {len(urls)} image(s). mediaGenerationId={first_media_gen_id[:50]}...")
+
+        # Download first image and convert to ComfyUI tensor
+        s2, img_bytes = _make_request(urls[0], "GET", {}, None, 60)
+        if s2 != 200:
+            raise RuntimeError(f"{LOG} Failed to download image from {urls[0]} (HTTP {s2})")
+        image_tensor = _bytes_to_tensor(img_bytes)
+
+        return (image_tensor, urls[0], first_media_gen_id, json.dumps(urls))
+
+
 # ── ComfyUI Registration ──────────────────────────────────────────────────────
 NODE_CLASS_MAPPINGS = {
-    "UseapiTokenFromEnv": UseapiTokenFromEnv,
-    "UseapiVeoGenerate":  UseapiVeoGenerate,
-    "UseapiVeoUpscale":   UseapiVeoUpscale,
-    "UseapiVeoExtend":    UseapiVeoExtend,
+    "UseapiTokenFromEnv":            UseapiTokenFromEnv,
+    "UseapiVeoGenerate":             UseapiVeoGenerate,
+    "UseapiVeoUpscale":              UseapiVeoUpscale,
+    "UseapiVeoExtend":               UseapiVeoExtend,
+    "UseapiGoogleFlowGenerateImage": UseapiGoogleFlowGenerateImage,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "UseapiTokenFromEnv": "Useapi Token From Env",
-    "UseapiVeoGenerate":  "Useapi Veo 3.1 Generate Video",
-    "UseapiVeoUpscale":   "Useapi Veo Upscale Video",
-    "UseapiVeoExtend":    "Useapi Veo Extend Video",
+    "UseapiTokenFromEnv":            "Useapi Token From Env",
+    "UseapiVeoGenerate":             "Useapi Veo 3.1 Generate Video",
+    "UseapiVeoUpscale":              "Useapi Veo Upscale Video",
+    "UseapiVeoExtend":               "Useapi Veo Extend Video",
+    "UseapiGoogleFlowGenerateImage": "Useapi Google Flow Generate Image",
 }
