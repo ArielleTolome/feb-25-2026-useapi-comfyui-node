@@ -53,10 +53,20 @@ def _auth_headers(token: str) -> dict:
     }
 
 
+_DEFAULT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+}
+
+
 def _make_request(url: str, method: str = "GET", headers: dict = None,
                   data: bytes = None, timeout: int = 600):
     """Make an HTTP request. Returns (status_code, response_body_bytes)."""
-    req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
+    merged = {**_DEFAULT_HEADERS, **(headers or {})}
+    req = urllib.request.Request(url, data=data, headers=merged, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, resp.read()
@@ -161,10 +171,11 @@ def _download_file(url: str, ext: str = ".mp4") -> str:
 
 
 def _runway_poll(task_id: str, token: str,
-                 poll_interval: int = 10, max_wait: int = 600) -> list:
+                 poll_interval: int = 10, max_wait: int = 600,
+                 poll_path: str = "runwayml/tasks") -> list:
     """Poll Runway task until SUCCEEDED. Returns list of artifacts dicts."""
     poll_url = (
-        f"{BASE_URL}/runwayml/tasks/?taskId={urllib.parse.quote(task_id, safe='')}"
+        f"{BASE_URL}/{poll_path}/?taskId={urllib.parse.quote(task_id, safe='')}"
     )
     headers = _auth_headers(token)
     deadline = time.time() + max_wait
@@ -831,7 +842,8 @@ class UseapiRunwayFramesGenerate:
             raise RuntimeError(f"{LOG} Runway Frames: no taskId in response: {data}")
         print(f"{LOG} Runway Frames: task created. taskId={task_id[:50]}...")
 
-        artifacts = _runway_poll(task_id, token, poll_interval, max_wait)
+        artifacts = _runway_poll(task_id, token, poll_interval, max_wait,
+                                 poll_path="runwayml/frames/tasks")
         all_urls = [a["url"] for a in artifacts if a.get("mediaType") == "image" or "url" in a]
         if not all_urls:
             raise RuntimeError(f"{LOG} Runway Frames: no image URLs in artifacts: {artifacts}")
