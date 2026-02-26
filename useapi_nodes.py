@@ -342,14 +342,58 @@ class UseapiVeoUpscale:
         return (video_url, video_path)
 
 
+# ── Node 4: Veo Extend Video ──────────────────────────────────────────────────
+class UseapiVeoExtend:
+    """Extend an existing Veo video with a continuation prompt."""
+
+    CATEGORY = "Useapi.net/Google Flow"
+    FUNCTION = "execute"
+    RETURN_TYPES = ("STRING", "STRING", "STRING")
+    RETURN_NAMES = ("video_url", "video_path", "media_generation_id")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "media_generation_id": ("STRING", {"default": ""}),
+                "prompt": ("STRING", {"multiline": True, "default": ""}),
+            },
+            "optional": {
+                "api_token": ("STRING", {"default": ""}),
+            },
+        }
+
+    def execute(self, media_generation_id: str, prompt: str, api_token: str = ""):
+        token = _get_token(api_token)
+        url = f"{BASE_URL}/google-flow/videos/extend"
+        body = {"mediaGenerationId": media_generation_id, "prompt": prompt}
+        print(f"{LOG} Veo Extend: mediaGenerationId={media_generation_id[:50]}...")
+        headers = _auth_headers(token)
+        status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=600)
+        data = _check_status(status, raw, url, "Veo extend")
+
+        ops = data.get("operations", [])
+        if not ops:
+            raise RuntimeError(f"{LOG} Veo extend returned no operations: {data}")
+        video_meta = ops[0].get("operation", {}).get("metadata", {}).get("video", {})
+        video_url = video_meta.get("fifeUrl", "")
+        media_gen_id = video_meta.get("mediaGenerationId", "")
+        if not video_url:
+            raise RuntimeError(f"{LOG} Veo extend: no fifeUrl in response.")
+        video_path = _download_file(video_url, ".mp4")
+        return (video_url, video_path, media_gen_id)
+
+
 # ── ComfyUI Registration ──────────────────────────────────────────────────────
 NODE_CLASS_MAPPINGS = {
     "UseapiTokenFromEnv": UseapiTokenFromEnv,
     "UseapiVeoGenerate":  UseapiVeoGenerate,
     "UseapiVeoUpscale":   UseapiVeoUpscale,
+    "UseapiVeoExtend":    UseapiVeoExtend,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "UseapiTokenFromEnv": "Useapi Token From Env",
     "UseapiVeoGenerate":  "Useapi Veo 3.1 Generate Video",
     "UseapiVeoUpscale":   "Useapi Veo Upscale Video",
+    "UseapiVeoExtend":    "Useapi Veo Extend Video",
 }
