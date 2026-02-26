@@ -844,6 +844,56 @@ class UseapiRunwayFramesGenerate:
         return (image_tensor, first_url, json.dumps(all_urls), task_id)
 
 
+# ── Node 12: Runway Image Upscaler ───────────────────────────────────────────
+class UseapiRunwayImageUpscaler:
+    """Upscale or resize an image using Runway's free image upscaling service.
+
+    Works with free Runway accounts. Takes a URL, returns binary image data.
+    NOTE: Response is raw binary (not JSON) — special handling required.
+    """
+
+    CATEGORY = "Useapi.net/Runway"
+    FUNCTION = "execute"
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("image",)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image_url": ("STRING", {"default": ""}),
+                "width": ("INT", {"default": 2048, "min": 64, "max": 8192}),
+                "height": ("INT", {"default": 2048, "min": 64, "max": 8192}),
+            },
+            "optional": {
+                "api_token": ("STRING", {"default": ""}),
+                "email": ("STRING", {"default": ""}),
+            },
+        }
+
+    def execute(self, image_url: str, width: int, height: int,
+                api_token: str = "", email: str = ""):
+        token = _get_token(api_token)
+        params = {"image_url": image_url, "width": width, "height": height}
+        if email.strip():
+            params["email"] = email.strip()
+        qs = urllib.parse.urlencode(params)
+        url = f"{BASE_URL}/runwayml/image_upscaler/?{qs}"
+
+        print(f"{LOG} Runway Image Upscaler: {width}x{height} for {image_url[:60]}...")
+        headers = {"Authorization": f"Bearer {token}"}
+        # NOTE: response is raw binary image, NOT JSON — bypass _check_status
+        status, raw = _make_request(url, "GET", headers, None, timeout=120)
+        if status != 200:
+            raise RuntimeError(
+                f"{LOG} Runway Image Upscaler: HTTP {status}. "
+                f"Response: {raw[:200].decode(errors='replace')}"
+            )
+        tensor = _bytes_to_tensor(raw)
+        print(f"{LOG} Runway Image Upscaler: complete. Shape={tensor.shape}")
+        return (tensor,)
+
+
 # ── ComfyUI Registration ──────────────────────────────────────────────────────
 NODE_CLASS_MAPPINGS = {
     "UseapiTokenFromEnv":             UseapiTokenFromEnv,
@@ -857,6 +907,7 @@ NODE_CLASS_MAPPINGS = {
     "UseapiRunwayGenerate":           UseapiRunwayGenerate,
     "UseapiRunwayVideoToVideo":       UseapiRunwayVideoToVideo,
     "UseapiRunwayFramesGenerate":     UseapiRunwayFramesGenerate,
+    "UseapiRunwayImageUpscaler":      UseapiRunwayImageUpscaler,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "UseapiTokenFromEnv":             "Useapi Token From Env",
@@ -870,4 +921,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "UseapiRunwayGenerate":           "Useapi Runway Generate Video",
     "UseapiRunwayVideoToVideo":       "Useapi Runway Video-to-Video",
     "UseapiRunwayFramesGenerate":     "Useapi Runway Frames Generate Image",
+    "UseapiRunwayImageUpscaler":      "Useapi Runway Image Upscaler",
 }
