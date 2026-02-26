@@ -576,6 +576,37 @@ class UseapiGoogleFlowImageUpscale:
         return (tensor, media_generation_id)
 
 
+# ── Node 8: Runway Upload Asset ───────────────────────────────────────────────
+class UseapiRunwayUploadAsset:
+    """Upload an image to Runway for use in video generation.
+
+    Returns assetId needed by RunwayGenerate (firstImage_assetId)
+    or RunwayFramesGenerate (imageAssetId1/2/3).
+    """
+
+    CATEGORY = "Useapi.net/Runway"
+    FUNCTION = "execute"
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("asset_id",)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+            },
+            "optional": {
+                "api_token": ("STRING", {"default": ""}),
+                "email": ("STRING", {"default": ""}),
+            },
+        }
+
+    def execute(self, image: torch.Tensor, api_token: str = "", email: str = ""):
+        token = _get_token(api_token)
+        asset_id = _runway_upload_image(token, image, email)
+        return (asset_id,)
+
+
 # ── ComfyUI Registration ──────────────────────────────────────────────────────
 NODE_CLASS_MAPPINGS = {
     "UseapiTokenFromEnv":             UseapiTokenFromEnv,
@@ -585,6 +616,7 @@ NODE_CLASS_MAPPINGS = {
     "UseapiGoogleFlowGenerateImage":  UseapiGoogleFlowGenerateImage,
     "UseapiGoogleFlowUploadAsset":    UseapiGoogleFlowUploadAsset,
     "UseapiGoogleFlowImageUpscale":   UseapiGoogleFlowImageUpscale,
+    "UseapiRunwayUploadAsset":        UseapiRunwayUploadAsset,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "UseapiTokenFromEnv":             "Useapi Token From Env",
@@ -594,4 +626,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "UseapiGoogleFlowGenerateImage":  "Useapi Google Flow Generate Image",
     "UseapiGoogleFlowUploadAsset":    "Useapi Google Flow Upload Asset",
     "UseapiGoogleFlowImageUpscale":   "Useapi Google Flow Image Upscale",
+    "UseapiRunwayUploadAsset":        "Useapi Runway Upload Asset",
 }
