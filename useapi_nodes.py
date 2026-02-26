@@ -281,7 +281,7 @@ class UseapiVeoGenerate:
                 "api_token": ("STRING", {"default": ""}),
                 "email": ("STRING", {"default": ""}),
                 "count": ("INT", {"default": 1, "min": 1, "max": 4}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": 4294967294}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 2147483647}),
             },
         }
 
@@ -292,7 +292,7 @@ class UseapiVeoGenerate:
         url = f"{BASE_URL}/google-flow/videos"
         body = {"prompt": prompt, "model": model, "aspectRatio": aspect_ratio, "count": count}
         if seed != 0:
-            body["seed"] = seed
+            body["seed"] = seed & 0x7FFFFFFF
         if email.strip():
             body["email"] = email.strip()
 
@@ -428,7 +428,7 @@ class UseapiGoogleFlowGenerateImage:
                 "api_token": ("STRING", {"default": ""}),
                 "email": ("STRING", {"default": ""}),
                 "count": ("INT", {"default": 4, "min": 1, "max": 4}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": 4294967294}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 2147483647}),
                 "reference_1": ("STRING", {"default": ""}),
                 "reference_2": ("STRING", {"default": ""}),
                 "reference_3": ("STRING", {"default": ""}),
@@ -448,7 +448,7 @@ class UseapiGoogleFlowGenerateImage:
             "count": count,
         }
         if seed != 0:
-            body["seed"] = seed
+            body["seed"] = seed & 0x7FFFFFFF
         if email.strip():
             body["email"] = email.strip()
         for i, ref in enumerate([reference_1, reference_2, reference_3], start=1):
@@ -971,6 +971,7 @@ class UseapiPreviewVideo:
 
     CATEGORY = "Useapi.net/Utils"
     FUNCTION = "execute"
+    OUTPUT_NODE = True
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("info",)
 
