@@ -8,14 +8,17 @@ Generate images and videos using [Useapi.net](https://useapi.net)'s AI API proxy
 
 ## Installation
 
-**1. Clone into your ComfyUI custom_nodes directory:**
+### 1. Clone into your ComfyUI custom_nodes directory
 
+**Windows / Linux / Mac:**
 ```bash
 cd ComfyUI/custom_nodes
 git clone https://github.com/your-org/ComfyUI-UseapiNet
 ```
 
-**2. (Optional) Install opencv-python for the Load Video Frame node:**
+### 2. (Optional) Install opencv-python
+
+Only required for the `UseapiLoadVideoFrame` node.
 
 ```bash
 pip install opencv-python
@@ -23,15 +26,22 @@ pip install opencv-python
 
 All other dependencies (`numpy`, `Pillow`, `torch`) are already provided by ComfyUI.
 
-**3. Set your Useapi.net token:**
+### 3. Set your Useapi.net token
 
+**Mac/Linux:**
 ```bash
 export USEAPI_TOKEN=your_token_here
 ```
 
+**Windows (PowerShell):**
+```powershell
+$env:USEAPI_TOKEN="your_token_here"
+```
+
 Or wire it through the `UseapiTokenFromEnv` node in your workflow.
 
-**4. Restart ComfyUI** — nodes appear under **Useapi.net/** in the node menu.
+### 4. Restart ComfyUI
+Nodes appear under **Useapi.net/** in the node menu.
 
 ---
 
@@ -63,11 +73,7 @@ Get your API token at [https://useapi.net/docs/start-here/setup-useapi](https://
 
 ### Option A: Environment variable (recommended)
 
-```bash
-export USEAPI_TOKEN=your_token_here
-```
-
-Leave the `api_token` input on any node **empty** — it automatically falls back to `$USEAPI_TOKEN`.
+Set `USEAPI_TOKEN` in your OS environment. Leave the `api_token` input on any node **empty** — it automatically falls back to `$USEAPI_TOKEN`.
 
 ### Option B: TokenFromEnv node
 
@@ -85,307 +91,154 @@ Type or paste your token directly into the `api_token` field on any node. Not re
 
 #### `UseapiTokenFromEnv`
 Load a Useapi.net API token from an environment variable.
-
-| Input | Type | Description |
-|-------|------|-------------|
-| `env_var_name` | STRING | Name of the env var (default: `USEAPI_TOKEN`) |
-
-| Output | Type | Description |
-|--------|------|-------------|
-| `api_token` | STRING | Token value |
-
----
+- **Input**: `env_var_name` (default: USEAPI_TOKEN)
+- **Output**: `api_token` (STRING)
 
 #### `UseapiLoadVideoFrame`
 Extract a specific frame from a video file as a ComfyUI IMAGE tensor.
-
-> **Requires:** `pip install opencv-python`
-
-| Input | Type | Description |
-|-------|------|-------------|
-| `video_path` | STRING | Local path to the video file |
-| `frame_number` | INT | Zero-based frame index to extract |
-
-| Output | Type | Description |
-|--------|------|-------------|
-| `image` | IMAGE | Extracted frame as ComfyUI tensor |
-
----
+- **Input**: `video_path` (STRING), `frame_number` (INT)
+- **Output**: `image` (IMAGE)
 
 #### `UseapiPreviewVideo`
 Display video URL and local path metadata as text. Wire the output to a ShowText node.
-
-| Input | Type | Description |
-|-------|------|-------------|
-| `video_url` | STRING | Remote URL of the video |
-| `video_path` | STRING | Local cached path (optional) |
-
-| Output | Type | Description |
-|--------|------|-------------|
-| `info` | STRING | URL, path, exists flag, file size |
+- **Input**: `video_url` (STRING), `video_path` (STRING)
+- **Output**: `info` (STRING)
 
 ---
 
 ### Useapi.net/Google Flow
 
 #### `UseapiVeoGenerate`
-Generate video using Google Veo 3.1. Server-side auto-poll (~60-180s). Timeout: 600s.
-
-| Input | Type | Description |
-|-------|------|-------------|
-| `prompt` | STRING | Text description of the video |
-| `model` | COMBO | `veo-3.1-fast`, `veo-3.1-quality`, `veo-3.1-fast-relaxed`, `veo-3`, `veo-2` |
-| `aspect_ratio` | COMBO | `landscape` or `portrait` |
-| `api_token` | STRING | Optional — falls back to `$USEAPI_TOKEN` |
-| `email` | STRING | Google Flow account email (optional) |
-| `count` | INT | Number of videos to generate (1-4) |
-| `seed` | INT | Reproducibility seed (0 = random) |
-
-| Output | Type | Description |
-|--------|------|-------------|
-| `video_url` | STRING | Remote URL of generated video |
-| `video_path` | STRING | Local cached `.mp4` path |
-| `media_generation_id` | STRING | ID for upscale/extend operations |
-
----
+Generate video using Google Veo 3.1. Server-side auto-poll.
+- **Input**: `prompt`, `model`, `aspect_ratio`, `count`, `seed`
+- **Output**: `video_url`, `video_path`, `media_generation_id`
 
 #### `UseapiVeoUpscale`
-Upscale a Veo-generated video to 1080p or 4K using its `mediaGenerationId`.
-
-| Input | Type | Description |
-|-------|------|-------------|
-| `media_generation_id` | STRING | From VeoGenerate or VeoExtend output |
-| `resolution` | COMBO | `1080p` or `4K` |
-| `api_token` | STRING | Optional |
-
-| Output | Type | Description |
-|--------|------|-------------|
-| `video_url` | STRING | Upscaled video URL |
-| `video_path` | STRING | Local cached path |
-
----
+Upscale a Veo-generated video to 1080p or 4K.
+- **Input**: `media_generation_id`, `resolution` (1080p, 4K)
+- **Output**: `video_url`, `video_path`
 
 #### `UseapiVeoExtend`
 Extend an existing Veo video with a continuation prompt.
+- **Input**: `media_generation_id`, `prompt`, `model`
+- **Output**: `video_url`, `video_path`, `media_generation_id`
 
-| Input | Type | Description |
-|-------|------|-------------|
-| `media_generation_id` | STRING | From VeoGenerate output |
-| `prompt` | STRING | Continuation prompt |
-| `api_token` | STRING | Optional |
+#### `UseapiVeoVideoToGif`
+Convert a Veo-generated video to an animated GIF.
+- **Input**: `media_generation_id`
+- **Output**: `gif_path`
 
-| Output | Type | Description |
-|--------|------|-------------|
-| `video_url` | STRING | Extended video URL |
-| `video_path` | STRING | Local cached path |
-| `media_generation_id` | STRING | ID for further operations |
-
----
+#### `UseapiVeoConcatenate`
+Concatenate 2-5 Veo videos with optional trim controls.
+- **Input**: `media_1`..`media_5`, `trim_start_1`..`trim_end_5`
+- **Output**: `video_path`
 
 #### `UseapiGoogleFlowGenerateImage`
-Generate images using Imagen 4, Nano Banana, or Nano Banana Pro (~10-20s).
-
-| Input | Type | Description |
-|-------|------|-------------|
-| `prompt` | STRING | Image description |
-| `model` | COMBO | `imagen-4`, `nano-banana`, `nano-banana-pro` |
-| `aspect_ratio` | COMBO | `landscape` or `portrait` |
-| `api_token` | STRING | Optional |
-| `email` | STRING | Google Flow account email (optional) |
-| `count` | INT | Images to generate (1-4) |
-| `seed` | INT | Reproducibility seed |
-| `reference_1/2/3` | STRING | `mediaGenerationId` of reference images |
-
-| Output | Type | Description |
-|--------|------|-------------|
-| `image` | IMAGE | First generated image as ComfyUI tensor |
-| `image_url` | STRING | URL of first image |
-| `media_generation_id` | STRING | ID of first image (for upscale/reference) |
-| `all_urls` | STRING | JSON array of all generated image URLs |
-
----
+Generate images using Imagen 4, Nano Banana, or Nano Banana Pro.
+- **Input**: `prompt`, `model`, `aspect_ratio`, `count`, `reference_1/2/3`
+- **Output**: `image`, `image_url`, `media_generation_id`, `all_urls`
 
 #### `UseapiGoogleFlowUploadAsset`
-Upload an image to Google Flow for use as a reference. Email is required.
-
-| Input | Type | Description |
-|-------|------|-------------|
-| `image` | IMAGE | ComfyUI IMAGE tensor to upload |
-| `email` | STRING | Google Flow account email (**required**) |
-| `api_token` | STRING | Optional |
-
-| Output | Type | Description |
-|--------|------|-------------|
-| `media_generation_id` | STRING | Reference ID for use as `reference_1/2/3` |
-
----
+Upload an image to Google Flow for use as a reference.
+- **Input**: `image`, `email`
+- **Output**: `media_generation_id`
 
 #### `UseapiGoogleFlowImageUpscale`
 Upscale a `nano-banana-pro` generated image to 2K or 4K.
-
-> **Note:** Only works with images from the `nano-banana-pro` model.
-
-| Input | Type | Description |
-|-------|------|-------------|
-| `media_generation_id` | STRING | From GoogleFlowGenerateImage (nano-banana-pro only) |
-| `resolution` | COMBO | `2k` or `4k` |
-| `api_token` | STRING | Optional |
-
-| Output | Type | Description |
-|--------|------|-------------|
-| `image` | IMAGE | Upscaled image as ComfyUI tensor |
-| `media_generation_id` | STRING | Pass-through for chaining |
+- **Input**: `media_generation_id`, `resolution`
+- **Output**: `image`, `media_generation_id`
 
 ---
 
 ### Useapi.net/Runway
 
-#### `UseapiRunwayUploadAsset`
-Upload an image to Runway for use in video or image generation.
-
-| Input | Type | Description |
-|-------|------|-------------|
-| `image` | IMAGE | ComfyUI IMAGE tensor to upload |
-| `api_token` | STRING | Optional |
-| `email` | STRING | Runway account email (optional) |
-
-| Output | Type | Description |
-|--------|------|-------------|
-| `asset_id` | STRING | Runway asset ID for other nodes |
-
----
-
 #### `UseapiRunwayGenerate`
-Generate video using Runway Gen-4, Gen-4 Turbo, or Gen-3 Turbo. Async: polls until complete.
-
-If an `image` tensor is provided without an `asset_id`, auto-uploads the image first.
-
-| Input | Type | Description |
-|-------|------|-------------|
-| `model` | COMBO | `gen4`, `gen4turbo`, `gen3turbo` |
-| `text_prompt` | STRING | Video description |
-| `api_token` | STRING | Optional |
-| `image` | IMAGE | Optional — auto-uploaded as firstImage |
-| `asset_id` | STRING | Optional — pre-uploaded Runway asset ID |
-| `email` | STRING | Runway account email (optional) |
-| `aspect_ratio` | COMBO | `16:9`, `9:16`, `1:1`, `4:3`, `3:4`, `21:9` |
-| `seconds` | COMBO | `5` or `10` |
-| `seed` | INT | Reproducibility seed |
-| `explore_mode` | BOOLEAN | Enable explore mode (default: true) |
-| `max_jobs` | INT | Max concurrent jobs (1-10) |
-| `poll_interval` | INT | Seconds between polls (5-60) |
-| `max_wait` | INT | Max seconds to wait (60-1800) |
-
-| Output | Type | Description |
-|--------|------|-------------|
-| `video_url` | STRING | Generated video URL |
-| `video_path` | STRING | Local cached `.mp4` path |
-| `task_id` | STRING | Runway task ID |
-
----
+Generate video using Runway Gen-4, Gen-4 Turbo, or Gen-3 Turbo.
+- **Input**: `model` (gen4_5, gen4, gen4turbo, gen3turbo), `text_prompt`, `image`, `asset_id`, `aspect_ratio`, `seconds`, `explore_mode`
+- **Output**: `video_url`, `video_path`, `task_id`
 
 #### `UseapiRunwayVideoToVideo`
 Transform or extend an existing video using Runway Gen-4 or Gen-3 Turbo.
-
-| Input | Type | Description |
-|-------|------|-------------|
-| `video_asset_id` | STRING | Runway asset ID of the source video |
-| `model` | COMBO | `gen4` or `gen3turbo` |
-| `api_token` | STRING | Optional |
-| `text_prompt` | STRING | Transformation prompt (optional) |
-| `seconds` | COMBO | `5` or `10` |
-| `seed` | INT | Reproducibility seed |
-| `explore_mode` | BOOLEAN | Enable explore mode |
-| `max_jobs` | INT | Max concurrent jobs |
-| `poll_interval` | INT | Seconds between polls |
-| `max_wait` | INT | Max seconds to wait |
-
-| Output | Type | Description |
-|--------|------|-------------|
-| `video_url` | STRING | Generated video URL |
-| `video_path` | STRING | Local cached path |
-| `task_id` | STRING | Runway task ID |
-
----
+- **Input**: `video_asset_id`, `model`, `text_prompt`, `seconds`
+- **Output**: `video_url`, `video_path`, `task_id`
 
 #### `UseapiRunwayFramesGenerate`
-Generate high-quality 1080p images using Runway Frames (~20-30s). Supports up to 3 reference images.
+Generate high-quality 1080p images using Runway Frames.
+- **Input**: `text_prompt`, `aspect_ratio`, `style`, `diversity`, `num_images`, `image_ref_1/2/3`
+- **Output**: `image`, `image_url`, `all_urls`, `task_id`
 
-Reference images in the prompt with `@IMG_1`, `@IMG_2`, `@IMG_3`.
+#### `UseapiRunwayImages`
+Generate images using Runway nano-banana, gen4, or gen4-turbo.
+- **Input**: `model`, `text_prompt`, `aspect_ratio`, `resolution`, `num_images`, `style`
+- **Output**: `image`, `image_url`, `all_urls`, `task_id`
 
-| Input | Type | Description |
-|-------|------|-------------|
-| `text_prompt` | STRING | Image description |
-| `api_token` | STRING | Optional |
-| `email` | STRING | Runway account email (optional) |
-| `aspect_ratio` | COMBO | `16:9`, `9:16`, `1:1`, `4:3`, `3:4`, `21:9` |
-| `style` | STRING | Style modifier (optional) |
-| `diversity` | INT | Diversity level 0-5 (default: 2) |
-| `num_images` | COMBO | `1` or `4` |
-| `seed` | INT | Reproducibility seed |
-| `explore_mode` | BOOLEAN | Enable explore mode |
-| `image_ref_1/2/3` | IMAGE | Optional reference images (auto-uploaded) |
-| `poll_interval` | INT | Seconds between polls |
-| `max_wait` | INT | Max seconds to wait |
-
-| Output | Type | Description |
-|--------|------|-------------|
-| `image` | IMAGE | First generated image as ComfyUI tensor |
-| `image_url` | STRING | URL of first image |
-| `all_urls` | STRING | JSON array of all image URLs |
-| `task_id` | STRING | Runway task ID |
-
----
+#### `UseapiRunwayUploadAsset`
+Upload an image to Runway for use in video or image generation.
+- **Input**: `image`, `email`
+- **Output**: `asset_id`
 
 #### `UseapiRunwayImageUpscaler`
-Upscale or resize an image using Runway's free image upscaling service. Takes a URL as input.
+Upscale an image using Runway's free image upscaling service.
+- **Input**: `image_url`, `width`, `height`
+- **Output**: `image`
 
-| Input | Type | Description |
-|-------|------|-------------|
-| `image_url` | STRING | URL of the image to upscale |
-| `width` | INT | Target width in pixels (64-8192) |
-| `height` | INT | Target height in pixels (64-8192) |
-| `api_token` | STRING | Optional |
-| `email` | STRING | Runway account email (optional) |
+#### `UseapiRunwayGen4Upscale`
+Upscale a Runway Gen4 video asset to higher resolution.
+- **Input**: `asset_id`, `explore_mode`
+- **Output**: `video_url`, `video_path`, `task_id`
 
-| Output | Type | Description |
-|--------|------|-------------|
-| `image` | IMAGE | Upscaled image as ComfyUI tensor |
+#### `UseapiRunwayActTwo`
+Transfer motion from a driving video to a character using Gen4 Act Two.
+- **Input**: `driving_asset_id`, `character_asset_id`, `aspect_ratio`, `body_control`
+- **Output**: `video_url`, `video_path`, `task_id`
+
+#### `UseapiRunwayActTwoVoice`
+Add a voice to a Runway Gen4 Act Two video using a voice ID.
+- **Input**: `video_asset_id`, `voice_id`
+- **Output**: `video_url`, `video_path`, `task_id`
+
+#### `UseapiRunwayLipsync`
+Create a lipsync video using Runway.
+- **Input**: `image_asset_id`, `video_asset_id`, `audio_asset_id`, `voice_id`, `voice_text`
+- **Output**: `video_url`, `video_path`, `task_id`
+
+#### `UseapiRunwaySuperSlowMotion`
+Create super slow-motion video from a Runway video asset.
+- **Input**: `asset_id`, `speed`
+- **Output**: `video_url`, `video_path`, `task_id`
+
+#### `UseapiRunwayTranscribe`
+Transcribe a Runway video or audio asset to text.
+- **Input**: `asset_id`, `language`
+- **Output**: `full_text`, `words_json`
+
+#### `UseapiRunwayGen3TurboExtend`
+Extend a Runway Gen3 Turbo video.
+- **Input**: `asset_id`, `text_prompt`, `seed`
+- **Output**: `video_url`, `video_path`, `task_id`
 
 ---
 
 ## Example Workflows
 
-### Chain 1: Imagen 4 → Veo 3.1 (Image-to-Video)
-
+### Chain 1: Imagen 4 → Veo 3.1
 ```
 UseapiTokenFromEnv
-    └─► api_token ──► UseapiGoogleFlowGenerateImage (imagen-4, landscape)
-                           └─► media_generation_id ──► UseapiVeoGenerate (veo-3.1-fast)
-                                                            └─► video_path ──► UseapiPreviewVideo
+    └─► api_token ──► UseapiGoogleFlowGenerateImage
+                           └─► media_generation_id ──► UseapiVeoGenerate
 ```
 
-1. `UseapiTokenFromEnv` reads `$USEAPI_TOKEN`
-2. `UseapiGoogleFlowGenerateImage` generates an Imagen 4 image
-3. `UseapiVeoGenerate` uses the `media_generation_id` as a reference image for video generation
-4. `UseapiPreviewVideo` displays the result URL and file info
-
-### Chain 2: Runway Frames → Gen-4 (Image-to-Video)
-
+### Chain 2: Runway Act Two (Motion Transfer)
 ```
-UseapiTokenFromEnv
-    └─► api_token ──► UseapiRunwayFramesGenerate (text_prompt, 1 image)
-                           └─► image ──► UseapiRunwayGenerate (gen4, 10s)
-                                             └─► video_path ──► UseapiLoadVideoFrame (frame 0)
-                                                                     └─► image ──► (next generation)
+UseapiRunwayUploadAsset (Driving Video Frame) ──► asset_id (Driving)
+UseapiRunwayUploadAsset (Character Image)     ──► asset_id (Character)
+      │
+      └──► UseapiRunwayActTwo (driving_asset_id, character_asset_id)
+                └─► video_url ──► UseapiPreviewVideo
 ```
-
-1. `UseapiRunwayFramesGenerate` generates a high-quality Runway Frames image
-2. `UseapiRunwayGenerate` animates it with Gen-4 (auto-uploads the image)
-3. `UseapiLoadVideoFrame` extracts the final frame for chaining to the next generation
 
 ---
 
 ## Troubleshooting
 
-For common issues and solutions, please see the [Troubleshooting Guide](docs/TROUBLESHOOTING.md).
+See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for detailed help on rate limits, timeouts, and error codes.
