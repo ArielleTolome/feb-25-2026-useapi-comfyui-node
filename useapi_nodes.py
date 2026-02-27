@@ -41,6 +41,43 @@ _RUNWAY_STYLES = [
 # Images endpoint does not accept "none" as a style value
 _RUNWAY_STYLES_IMAGES = [s for s in _RUNWAY_STYLES if s != "none"]
 
+_CONFIG = {}
+
+def _load_config():
+    """Load default values from nodes_config.json if it exists."""
+    global _CONFIG
+    config_path = os.path.join(os.path.dirname(__file__), "nodes_config.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                _CONFIG = json.load(f)
+            print(f"{LOG} Loaded config from {config_path}")
+        except Exception as e:
+            print(f"{LOG} Error loading nodes_config.json: {e}")
+
+_load_config()
+
+def _get_config_value(node: str, key: str, default):
+    """Get a configuration value with fallback."""
+    # Check node-specific config first
+    if node in _CONFIG and key in _CONFIG[node]:
+        return _CONFIG[node][key]
+    # Check global config
+    if key in _CONFIG:
+        return _CONFIG[key]
+    # Check global config with "default_" prefix
+    default_key = f"default_{key}"
+    if default_key in _CONFIG:
+        return _CONFIG[default_key]
+    return default
+
+def _get_sorted_list(original_list: list, default_val: str) -> list:
+    """Move the default value to the front of the list if present."""
+    if default_val in original_list:
+        new_list = [default_val] + [x for x in original_list if x != default_val]
+        return new_list
+    return original_list
+
 # ── Shared Utilities ─────────────────────────────────────────────────────────
 
 def _get_token(api_token: str) -> str:
@@ -74,8 +111,10 @@ _DEFAULT_HEADERS = {
 
 
 def _make_request(url: str, method: str = "GET", headers: dict = None,
-                  data: bytes = None, timeout: int = 600):
+                  data: bytes = None, timeout: int = None):
     """Make an HTTP request. Returns (status_code, response_body_bytes)."""
+    if timeout is None:
+        timeout = _get_config_value("global", "default_timeout", 600)
     merged = {**_DEFAULT_HEADERS, **(headers or {})}
     req = urllib.request.Request(url, data=data, headers=merged, method=method)
     try:
@@ -361,11 +400,18 @@ class UseapiVeoGenerate:
 
     @classmethod
     def INPUT_TYPES(cls):
+        # Apply defaults from config
+        default_model = _get_config_value("UseapiVeoGenerate", "model", "veo-3.1-fast")
+        default_ar = _get_config_value("UseapiVeoGenerate", "aspect_ratio", "landscape")
+
+        models = ["veo-3.1-fast", "veo-3.1-quality", "veo-3.1-fast-relaxed", "veo-3", "veo-2"]
+        aspect_ratios = ["landscape", "portrait"]
+
         return {
             "required": {
                 "prompt": ("STRING", {"multiline": True, "default": ""}),
-                "model": (["veo-3.1-fast", "veo-3.1-quality", "veo-3.1-fast-relaxed", "veo-3", "veo-2"],),
-                "aspect_ratio": (["landscape", "portrait"],),
+                "model": (_get_sorted_list(models, default_model),),
+                "aspect_ratio": (_get_sorted_list(aspect_ratios, default_ar),),
             },
             "optional": {
                 "api_token": ("STRING", {"default": ""}),
@@ -408,7 +454,8 @@ class UseapiVeoGenerate:
         if pbar is not None:
             _pt, _done = _start_progress_thread(pbar, 150)
         try:
-            status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=600)
+            # Use None for timeout to respect global config default
+            status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=None)
         finally:
             if _done is not None:
                 _done.set(); _pt.join(timeout=1)
@@ -563,11 +610,17 @@ class UseapiGoogleFlowGenerateImage:
 
     @classmethod
     def INPUT_TYPES(cls):
+        default_model = _get_config_value("UseapiGoogleFlowGenerateImage", "model", "imagen-4")
+        default_ar = _get_config_value("UseapiGoogleFlowGenerateImage", "aspect_ratio", "landscape")
+
+        models = ["imagen-4", "nano-banana", "nano-banana-pro"]
+        aspect_ratios = ["landscape", "portrait"]
+
         return {
             "required": {
                 "prompt": ("STRING", {"multiline": True, "default": ""}),
-                "model": (["imagen-4", "nano-banana", "nano-banana-pro"],),
-                "aspect_ratio": (["landscape", "portrait"],),
+                "model": (_get_sorted_list(models, default_model),),
+                "aspect_ratio": (_get_sorted_list(aspect_ratios, default_ar),),
             },
             "optional": {
                 "api_token": ("STRING", {"default": ""}),
@@ -806,9 +859,17 @@ class UseapiRunwayGenerate:
 
     @classmethod
     def INPUT_TYPES(cls):
+        default_model = _get_config_value("UseapiRunwayGenerate", "model", "gen4_5")
+        default_ar = _get_config_value("UseapiRunwayGenerate", "aspect_ratio", "16:9")
+        default_secs = str(_get_config_value("UseapiRunwayGenerate", "seconds", "10"))
+
+        models = ["gen4_5", "gen4", "gen4turbo", "gen3turbo"]
+        aspect_ratios = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"]
+        seconds = ["5", "8", "10"]
+
         return {
             "required": {
-                "model": (["gen4_5", "gen4", "gen4turbo", "gen3turbo"],),
+                "model": (_get_sorted_list(models, default_model),),
                 "text_prompt": ("STRING", {"multiline": True, "default": ""}),
             },
             "optional": {
@@ -816,8 +877,8 @@ class UseapiRunwayGenerate:
                 "image": ("IMAGE",),
                 "asset_id": ("STRING", {"default": ""}),
                 "email": ("STRING", {"default": ""}),
-                "aspect_ratio": (["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"],),
-                "seconds": (["5", "8", "10"],),
+                "aspect_ratio": (_get_sorted_list(aspect_ratios, default_ar),),
+                "seconds": (_get_sorted_list(seconds, default_secs),),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 4294967294}),
                 "explore_mode": ("BOOLEAN", {"default": True}),
                 "max_jobs": ("INT", {"default": 5, "min": 1, "max": 10}),

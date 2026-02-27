@@ -1,5 +1,7 @@
 # ComfyUI-UseapiNet
 
+![CI](https://github.com/ArielleTolome/feb-25-2026-useapi-comfyui-node/actions/workflows/ci.yml/badge.svg)
+
 Generate images and videos using [Useapi.net](https://useapi.net)'s AI API proxy directly within ComfyUI workflows. Supports Google Flow (Imagen 4, Veo 3.1) and Runway (Gen-4, Gen-4 Turbo, Frames) via your existing subscriptions — no separate API keys needed, just your Useapi.net token.
 
 ---
@@ -30,6 +32,28 @@ export USEAPI_TOKEN=your_token_here
 Or wire it through the `UseapiTokenFromEnv` node in your workflow.
 
 **4. Restart ComfyUI** — nodes appear under **Useapi.net/** in the node menu.
+
+---
+
+## Configuration
+
+You can configure default values for common parameters by creating a `nodes_config.json` file in the same directory as `useapi_nodes.py`. This allows you to set defaults for model, aspect ratio, timeout, etc., without editing the code.
+
+Example `nodes_config.json`:
+
+```json
+{
+  "default_timeout": 600,
+  "default_aspect_ratio": "16:9",
+  "UseapiVeoGenerate": {
+    "model": "veo-3.1-fast"
+  }
+}
+```
+
+- `default_timeout`: Sets the global timeout in seconds for API requests (default: 600).
+- `default_aspect_ratio`: Sets the default aspect ratio for nodes that support it.
+- Node-specific overrides: You can specify a node class name (e.g., `UseapiVeoGenerate`) and provide key-value pairs to override defaults for that specific node.
 
 ---
 

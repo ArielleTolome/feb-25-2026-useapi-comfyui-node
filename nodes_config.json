@@ -1,0 +1,7 @@
+{
+  "default_timeout": 600,
+  "default_aspect_ratio": "16:9",
+  "UseapiVeoGenerate": {
+    "model": "veo-3.1-fast"
+  }
+}
