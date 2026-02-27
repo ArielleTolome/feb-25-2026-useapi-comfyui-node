@@ -8,6 +8,7 @@ import os
 import io
 import json
 import time
+import zlib
 import base64
 import hashlib
 import ipaddress
@@ -318,10 +319,10 @@ def _bytes_to_tensor(img_bytes: bytes) -> torch.Tensor:
 
 
 def _download_file(url: str, ext: str = ".mp4") -> str:
-    """Download URL to cache dir with MD5-hash filename. Returns local path."""
+    """Download URL to cache dir with hash filename. Returns local path."""
     _validate_url(url)
     os.makedirs(VIDEO_CACHE_DIR, exist_ok=True)
-    fname = hashlib.md5(url.encode()).hexdigest() + ext
+    fname = f"{zlib.adler32(url.encode()):08x}" + ext
     dest = os.path.join(VIDEO_CACHE_DIR, fname)
     if os.path.exists(dest):
         print(f"{LOG} Cache hit: {dest}")
@@ -337,9 +338,9 @@ def _download_file(url: str, ext: str = ".mp4") -> str:
 
 
 def _save_bytes_to_cache(data: bytes, ext: str) -> str:
-    """Save raw bytes to VIDEO_CACHE_DIR with MD5-hash filename. Returns local path."""
+    """Save raw bytes to VIDEO_CACHE_DIR with hash filename. Returns local path."""
     os.makedirs(VIDEO_CACHE_DIR, exist_ok=True)
-    fname = hashlib.md5(data).hexdigest() + ext
+    fname = f"{zlib.adler32(data):08x}" + ext
     dest = os.path.join(VIDEO_CACHE_DIR, fname)
     with open(dest, "wb") as f:
         f.write(data)
