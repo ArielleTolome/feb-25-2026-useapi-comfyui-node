@@ -1,0 +1,170 @@
+{
+  "last_node_id": 3,
+  "last_link_id": 3,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "UseapiTokenFromEnv",
+      "pos": [
+        100,
+        100
+      ],
+      "size": [
+        300,
+        50
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "api_token",
+          "type": "STRING",
+          "links": [
+            1
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "UseapiTokenFromEnv"
+      },
+      "widgets_values": [
+        "USEAPI_TOKEN"
+      ]
+    },
+    {
+      "id": 2,
+      "type": "UseapiVeoGenerate",
+      "pos": [
+        100,
+        250
+      ],
+      "size": [
+        400,
+        400
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "api_token",
+          "type": "STRING",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "video_url",
+          "type": "STRING",
+          "links": [
+            2
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "video_path",
+          "type": "STRING",
+          "links": [
+            3
+          ],
+          "slot_index": 1
+        },
+        {
+          "name": "media_generation_id",
+          "type": "STRING",
+          "links": [],
+          "slot_index": 2
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "UseapiVeoGenerate"
+      },
+      "widgets_values": [
+        "A serene mountain landscape with a flowing river",
+        "veo-3.1-quality",
+        "landscape",
+        "",
+        "",
+        1,
+        0,
+        "",
+        "",
+        "",
+        "",
+        ""
+      ]
+    },
+    {
+      "id": 3,
+      "type": "UseapiPreviewVideo",
+      "pos": [
+        550,
+        250
+      ],
+      "size": [
+        400,
+        200
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "video_url",
+          "type": "STRING",
+          "link": 2
+        },
+        {
+          "name": "video_path",
+          "type": "STRING",
+          "link": 3
+        }
+      ],
+      "outputs": [
+        {
+          "name": "info",
+          "type": "STRING",
+          "links": [],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "UseapiPreviewVideo"
+      },
+      "widgets_values": []
+    }
+  ],
+  "links": [
+    [
+      1,
+      1,
+      0,
+      2,
+      0,
+      "STRING"
+    ],
+    [
+      2,
+      2,
+      0,
+      3,
+      0,
+      "STRING"
+    ],
+    [
+      3,
+      2,
+      1,
+      3,
+      1,
+      "STRING"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}
