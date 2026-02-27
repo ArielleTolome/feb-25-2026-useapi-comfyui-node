@@ -18,8 +18,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # Install optional dependencies if any, otherwise just run tests
-        # We don't have mandatory deps beyond stdlib for structure tests
+        pip install Pillow requests numpy
     - name: Run Structure Tests
       run: |
         python -m unittest tests/test_structure.py
