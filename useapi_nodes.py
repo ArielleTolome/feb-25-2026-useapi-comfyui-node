@@ -236,12 +236,27 @@ def _runway_poll(task_id: str, token: str,
     headers = _auth_headers(token)
     deadline = time.time() + max_wait
     _start = time.time()
+    # Adaptive polling: start with shorter interval, ramp up to poll_interval
+    current_interval = min(2.0, poll_interval)
     while time.time() < deadline:
-        time.sleep(poll_interval)
+        # Sleep in chunks to allow progress updates (responsiveness)
+        sleep_end = time.time() + current_interval
+        while time.time() < sleep_end:
+            chunk = min(0.1, sleep_end - time.time())
+            if chunk > 0:
+                time.sleep(chunk)
+            if pbar is not None:
+                _elapsed = time.time() - _start
+                pbar.update_absolute(min(int(_elapsed / max_wait * 95), 95), 100)
+
         status, raw = _make_request(poll_url, "GET", headers, None, 30)
         data = _check_status(status, raw, poll_url, f"Runway poll {task_id[:30]}")
         task_status = data.get("status", "")
         print(f"{LOG} Runway task {task_id[:30]}... → {task_status}")
+
+        # Increase interval for next loop, capped at poll_interval
+        current_interval = min(current_interval * 1.5, poll_interval)
+
         if pbar is not None:
             _elapsed = time.time() - _start
             pbar.update_absolute(min(int(_elapsed / max_wait * 95), 95), 100)
