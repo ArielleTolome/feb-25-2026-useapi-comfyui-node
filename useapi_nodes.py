@@ -189,6 +189,10 @@ def _bytes_to_tensor(img_bytes: bytes) -> torch.Tensor:
 
 def _download_file(url: str, ext: str = ".mp4") -> str:
     """Download URL to cache dir with MD5-hash filename. Returns local path."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"{LOG} Invalid URL scheme: {parsed.scheme}. Only http/https allowed.")
+
     os.makedirs(VIDEO_CACHE_DIR, exist_ok=True)
     fname = hashlib.md5(url.encode()).hexdigest() + ext
     dest = os.path.join(VIDEO_CACHE_DIR, fname)
