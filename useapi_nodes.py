@@ -8,7 +8,6 @@ import os
 import io
 import json
 import time
-import uuid
 import base64
 import hashlib
 import shutil
@@ -140,34 +139,6 @@ def _check_status(status: int, body: bytes, url: str, context: str = "") -> dict
             f"Verify your account settings at useapi.net. URL: {url}\nDetail: {detail}"
         )
     raise RuntimeError(f"{LOG} {label}HTTP {status} from {url}.\nDetail: {detail}")
-
-
-def _build_multipart(fields: dict, files: dict):
-    """Build multipart/form-data without the requests library.
-
-    Args:
-        fields: {"name": "string_value"}
-        files:  {"name": ("filename.ext", bytes_data, "mime/type")}
-    Returns:
-        (body_bytes, content_type_string_with_boundary)
-    """
-    boundary = "----ComfyUIBoundary" + uuid.uuid4().hex
-    body = b""
-    for name, value in fields.items():
-        body += f"--{boundary}\r\n".encode()
-        body += f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode()
-        body += str(value).encode()
-        body += b"\r\n"
-    for name, (filename, data, ctype) in files.items():
-        body += f"--{boundary}\r\n".encode()
-        body += (
-            f'Content-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
-            f"Content-Type: {ctype}\r\n\r\n"
-        ).encode()
-        body += data
-        body += b"\r\n"
-    body += f"--{boundary}--\r\n".encode()
-    return body, f"multipart/form-data; boundary={boundary}"
 
 
 def _tensor_to_png_bytes(tensor: torch.Tensor) -> bytes:
