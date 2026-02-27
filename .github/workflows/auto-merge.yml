@@ -1,0 +1,87 @@
+name: Auto Merge
+
+on:
+  pull_request_review:
+    types: [submitted]
+  check_suite:
+    types: [completed]
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+    steps:
+      - name: Check conditions and merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Function to check conditions for a PR
+          check_and_merge() {
+            PR_NUMBER=$1
+            if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" == "null" ]; then
+              echo "No PR number provided."
+              return
+            fi
+
+            echo "Checking PR #$PR_NUMBER..."
+
+            # Get PR details
+            # statusCheckRollup.state: SUCCESS, PENDING, FAILURE, etc.
+            PR_DATA=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json reviews,statusCheckRollup,state)
+
+            # Check if PR is open
+            PR_STATE=$(echo "$PR_DATA" | jq -r '.state')
+            if [ "$PR_STATE" != "OPEN" ]; then
+              echo "PR #$PR_NUMBER is not open (State: $PR_STATE). Skipping."
+              return
+            fi
+
+            # Check 1: CI Tests Pass
+            # We check the rollup state. It must be SUCCESS.
+            STATUS=$(echo "$PR_DATA" | jq -r '.statusCheckRollup.state')
+            if [ "$STATUS" != "SUCCESS" ]; then
+              echo "CI checks not passed (Status: $STATUS). Skipping."
+              return
+            fi
+
+            # Filter for latest reviews per author
+            # Group by author.login and take the last review (latest)
+            LATEST_REVIEWS=$(echo "$PR_DATA" | jq -c '.reviews | group_by(.author.login) | map(.[-1])')
+
+            # Check 2: At least one approval from Codex or Greptile
+            # Filter latest reviews for state="APPROVED" and author.login in [Codex, Greptile]
+            APPROVALS=$(echo "$LATEST_REVIEWS" | jq '[.[] | select(.state == "APPROVED") | select(.author.login == "Codex" or .author.login == "Greptile")] | length')
+            if [ "$APPROVALS" -eq 0 ]; then
+              echo "No approval from Codex or Greptile found. Skipping."
+              return
+            fi
+
+            # Check 3: No changes requested
+            # Ensure no reviewer has requested changes in their latest review
+            CHANGES_REQUESTED=$(echo "$LATEST_REVIEWS" | jq '[.[] | select(.state == "CHANGES_REQUESTED")] | length')
+            if [ "$CHANGES_REQUESTED" -gt 0 ]; then
+              echo "Changes requested on PR. Skipping."
+              return
+            fi
+
+            # If all conditions met, merge
+            echo "All conditions met. Merging PR #$PR_NUMBER..."
+            gh pr merge "$PR_NUMBER" --repo "$REPO" --auto --squash
+          }
+
+          # Handle event types
+          if [ "${{ github.event_name }}" == "pull_request_review" ]; then
+            PR_NUM="${{ github.event.pull_request.number }}"
+            check_and_merge "$PR_NUM"
+          elif [ "${{ github.event_name }}" == "check_suite" ]; then
+            # check_suite payload has .pull_requests array
+            # Use jq to extract numbers from the event file
+            PR_NUMS=$(jq -r '.check_suite.pull_requests[].number // empty' "$GITHUB_EVENT_PATH")
+            for num in $PR_NUMS; do
+              check_and_merge "$num"
+            done
+          fi
