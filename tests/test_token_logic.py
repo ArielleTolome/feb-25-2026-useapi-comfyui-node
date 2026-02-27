@@ -65,7 +65,7 @@ class TestTokenPrecedence(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaises(ValueError) as cm:
                 _get_token("")
-            self.assertIn("API token not provided", str(cm.exception))
+            self.assertIn("API token is missing", str(cm.exception))
 
     def test_whitespace_stripping(self):
         """Verify that whitespace is stripped from both direct argument and env var."""

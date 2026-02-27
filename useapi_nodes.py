@@ -60,9 +60,9 @@ def _load_config():
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 _CONFIG = json.load(f)
-            logger.info({LOG} Loaded config from {config_path})
+            logger.info(f"{LOG} Loaded config from {config_path}")
         except Exception as e:
-            logger.info({LOG} Error loading nodes_config.json: {e})
+            logger.info(f"{LOG} Error loading nodes_config.json: {e}")
 
 _load_config()
 
@@ -327,15 +327,15 @@ def _download_file(url: str, ext: str = ".mp4") -> str:
     fname = f"{zlib.adler32(url.encode()):08x}" + ext
     dest = os.path.join(VIDEO_CACHE_DIR, fname)
     if os.path.exists(dest):
-        logger.info({LOG} Cache hit: {dest})
+        logger.info(f"{LOG} Cache hit: {dest}")
         return dest
-    logger.info({LOG} Downloading to {dest} ...)
+    logger.info(f"{LOG} Downloading to {dest} ...")
     opener = urllib.request.build_opener(_SafeRedirectHandler())
     with opener.open(url, timeout=120) as resp:
         data = resp.read()
     with open(dest, "wb") as f:
         f.write(data)
-    logger.info({LOG} Downloaded {len(data):,} bytes → {dest})
+    logger.info(f"{LOG} Downloaded {len(data):,} bytes \u2192 {dest}")
     return dest
 
 
@@ -346,7 +346,7 @@ def _save_bytes_to_cache(data: bytes, ext: str) -> str:
     dest = os.path.join(VIDEO_CACHE_DIR, fname)
     with open(dest, "wb") as f:
         f.write(data)
-    logger.info({LOG} Saved {len(data):,} bytes → {dest})
+    logger.info(f"{LOG} Saved {len(data):,} bytes \u2192 {dest}")
     return dest
 
 
@@ -376,11 +376,11 @@ def _runway_poll(task_id: str, token: str,
 
         status, raw = _make_request(poll_url, "GET", headers, None, 30)
         if status in [500, 502, 503, 504, 520, 522, 524]:
-            logger.info({LOG} Runway poll transient error {status}. Retrying...)
+            logger.info(f"{LOG} Runway poll transient error {status}. Retrying...")
             continue
         data = _check_status(status, raw, poll_url, f"Runway poll {task_id[:30]}")
         task_status = data.get("status", "")
-        logger.info({LOG} Runway task {task_id[:30]}... → {task_status})
+        logger.info(f"{LOG} Runway task {task_id[:30]}... → {task_status}")
 
         # Increase interval for next loop, capped at poll_interval
         current_interval = min(current_interval * 1.5, poll_interval)
@@ -398,7 +398,7 @@ def _runway_poll(task_id: str, token: str,
                 )
             return artifacts
         if task_status == "THROTTLED":
-            logger.info({LOG} Runway task {task_id[:30]}... is THROTTLED. Continuing to poll...)
+            logger.info(f"{LOG} Runway task {task_id[:30]}... is THROTTLED. Continuing to poll...")
             continue
         if task_status in ("FAILED", "CANCELLED"):
             raise RuntimeError(
@@ -428,13 +428,13 @@ def _runway_upload_image(token: str, image_tensor: torch.Tensor,
         params["email"] = email.strip()
     url = f"{BASE_URL}/runwayml/assets?{urllib.parse.urlencode(params)}"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "image/png"}
-    logger.info({LOG} Runway: uploading image asset...)
+    logger.info(f"{LOG} Runway: uploading image asset...")
     status, raw = _make_request(url, "POST", headers, png_bytes, timeout=60)
     data = _check_status(status, raw, url, "Runway upload asset")
     asset_id = data.get("assetId", "") or data.get("id", "")
     if not asset_id:
         raise RuntimeError(f"{LOG} Runway upload: no assetId in response: {data}")
-    logger.info({LOG} Runway asset uploaded: {asset_id[:50]}...)
+    logger.info(f"{LOG} Runway asset uploaded: {asset_id[:50]}...")
     return asset_id
 
 
@@ -499,7 +499,7 @@ class UseapiTokenFromEnv:
                 f"{LOG} Environment variable '{env_var_name}' is not set or empty. "
                 "Export it before launching ComfyUI."
             )
-        logger.info({LOG} Token loaded from env var '{env_var_name}')
+        logger.info(f"{LOG} Token loaded from env var '{env_var_name}'")
         return (token,)
 
 # ── ComfyUI Registration ──────────────────────────────────────────────────────
@@ -566,7 +566,7 @@ class UseapiVeoGenerate:
             if ref.strip():
                 body[f"referenceImage_{i}"] = ref.strip()
 
-        logger.info({LOG} Veo Generate: model={model}, prompt='{prompt[:60]}...')
+        logger.info(f"{LOG} Veo Generate: model={model}, prompt='{prompt[:60]}...'")
         headers = _auth_headers(token)
         pbar = _make_pbar()
         _pt, _done = (None, None)
@@ -598,7 +598,7 @@ class UseapiVeoGenerate:
                 f"The API might have changed. Detail: {video_meta}"
             )
 
-        logger.info({LOG} Veo Generate: complete. mediaGenerationId={media_gen_id[:50]}...)
+        logger.info(f"{LOG} Veo Generate: complete. mediaGenerationId={media_gen_id[:50]}...")
         video_path = _download_file(video_url, ".mp4")
         return (video_url, video_path, media_gen_id)
 
@@ -629,7 +629,7 @@ class UseapiVeoUpscale:
         token = _get_token(api_token)
         url = f"{BASE_URL}/google-flow/videos/upscale"
         body = {"mediaGenerationId": media_generation_id, "resolution": resolution}
-        logger.info({LOG} Veo Upscale: {resolution}, mediaGenerationId={media_generation_id[:50]}...)
+        logger.info(f"{LOG} Veo Upscale: {resolution}, mediaGenerationId={media_generation_id[:50]}...")
         headers = _auth_headers(token)
         pbar = _make_pbar()
         _pt, _done = (None, None)
@@ -688,7 +688,7 @@ class UseapiVeoExtend:
                 "model": model, "count": count}
         if seed != 0:
             body["seed"] = seed & 0x7FFFFFFF
-        logger.info({LOG} Veo Extend: mediaGenerationId={media_generation_id[:50]}...)
+        logger.info(f"{LOG} Veo Extend: mediaGenerationId={media_generation_id[:50]}...")
         headers = _auth_headers(token)
         pbar = _make_pbar()
         _pt, _done = (None, None)
@@ -775,7 +775,7 @@ class UseapiGoogleFlowGenerateImage:
             if ref.strip():
                 body[f"reference_{i}"] = ref.strip()
 
-        logger.info({LOG} Google Flow Image: model={model}, count={count}, prompt='{prompt[:60]}')
+        logger.info(f"{LOG} Google Flow Image: model={model}, count={count}, prompt='{prompt[:60]}'")
         headers = _auth_headers(token)
         pbar = _make_pbar()
         _pt, _done = (None, None)
@@ -791,7 +791,7 @@ class UseapiGoogleFlowGenerateImage:
                         _rmsg = _resp.get("message", "") or _err.get("message", "")
                         if "reCAPTCHA" in _rmsg or "captcha" in _rmsg.lower():
                             wait_time = 2 * (2 ** _attempt)
-                            logger.info({LOG} Google Flow Image: reCAPTCHA 403, retrying ({_attempt + 1}/3) in {wait_time}s...)
+                            logger.info(f"{LOG} Google Flow Image: reCAPTCHA 403, retrying ({_attempt + 1}/3) in {wait_time}s...")
                             time.sleep(wait_time)
                             continue
                     except Exception:
@@ -821,7 +821,7 @@ class UseapiGoogleFlowGenerateImage:
         if not urls:
             raise RuntimeError(f"{LOG} Google Flow image: no fifeUrls found in response: {data}")
 
-        logger.info({LOG} Google Flow Image: {len(urls)} image(s). mediaGenerationId={first_media_gen_id[:50]}...)
+        logger.info(f"{LOG} Google Flow Image: {len(urls)} image(s). mediaGenerationId={first_media_gen_id[:50]}...")
 
         # Download first image and convert to ComfyUI tensor
         s2, img_bytes = _make_request(urls[0], "GET", {}, None, 60)
@@ -868,7 +868,7 @@ class UseapiGoogleFlowUploadAsset:
         png_bytes = _tensor_to_png_bytes(image)
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "image/png"}
 
-        logger.info({LOG} Google Flow Upload Asset: uploading for {email_clean}...)
+        logger.info(f"{LOG} Google Flow Upload Asset: uploading for {email_clean}...")
         status, raw = _make_request(url, "POST", headers, png_bytes, timeout=60)
         data = _check_status(status, raw, url, "Google Flow upload asset")
 
@@ -882,7 +882,7 @@ class UseapiGoogleFlowUploadAsset:
             raise RuntimeError(
                 f"{LOG} Google Flow Upload Asset: no mediaGenerationId in response: {data}"
             )
-        logger.info({LOG} Google Flow Upload Asset: mediaGenerationId={media_gen_id[:50]}...)
+        logger.info(f"{LOG} Google Flow Upload Asset: mediaGenerationId={media_gen_id[:50]}...")
         return (media_gen_id,)
 
 
@@ -916,7 +916,7 @@ class UseapiGoogleFlowImageUpscale:
         token = _get_token(api_token)
         url = f"{BASE_URL}/google-flow/images/upscale"
         body = {"mediaGenerationId": media_generation_id, "resolution": resolution}
-        logger.info({LOG} Google Flow Image Upscale: {resolution}, mediaGenerationId={media_generation_id[:50]}...)
+        logger.info(f"{LOG} Google Flow Image Upscale: {resolution}, mediaGenerationId={media_generation_id[:50]}...")
 
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=300)
@@ -930,7 +930,7 @@ class UseapiGoogleFlowImageUpscale:
             )
         img_bytes = base64.b64decode(encoded)
         tensor = _bytes_to_tensor(img_bytes)
-        logger.info({LOG} Google Flow Image Upscale: complete. Shape={tensor.shape})
+        logger.info(f"{LOG} Google Flow Image Upscale: complete. Shape={tensor.shape}")
         return (tensor, media_generation_id)
 
 
@@ -1021,7 +1021,7 @@ class UseapiRunwayGenerate:
         # Auto-upload image if provided without asset_id
         final_asset_id = asset_id.strip()
         if image is not None and not final_asset_id:
-            logger.info({LOG} Runway Generate: auto-uploading image...)
+            logger.info(f"{LOG} Runway Generate: auto-uploading image...")
             final_asset_id = _runway_upload_image(token, image, email)
 
         url = f"{BASE_URL}/runwayml/{model}/create"
@@ -1039,7 +1039,7 @@ class UseapiRunwayGenerate:
         if email.strip():
             body["email"] = email.strip()
 
-        logger.info({LOG} Runway Generate: model={model}, {seconds}s, prompt='{text_prompt[:60]}')
+        logger.info(f"{LOG} Runway Generate: model={model}, {seconds}s, prompt='{text_prompt[:60]}'")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
         data = _check_status(status, raw, url, f"Runway {model} create")
@@ -1050,7 +1050,7 @@ class UseapiRunwayGenerate:
                 f"{LOG} Runway create: 'taskId' missing in response. "
                 f"Check your account status and inputs. Response: {data}"
             )
-        logger.info({LOG} Runway Generate: task created. taskId={task_id[:50]}...)
+        logger.info(f"{LOG} Runway Generate: task created. taskId={task_id[:50]}...")
 
         pbar = _make_pbar()
         artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
@@ -1110,7 +1110,7 @@ class UseapiRunwayVideoToVideo:
         if seed != 0:
             body["seed"] = seed
 
-        logger.info({LOG} Runway Video-to-Video: model={model}, assetId={video_asset_id[:50]}...)
+        logger.info(f"{LOG} Runway Video-to-Video: model={model}, assetId={video_asset_id[:50]}...")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
         data = _check_status(status, raw, url, f"Runway {model} video-to-video create")
@@ -1178,7 +1178,7 @@ class UseapiRunwayFramesGenerate:
         asset_ids = []
         for i, ref_img in enumerate([image_ref_1, image_ref_2, image_ref_3], start=1):
             if ref_img is not None:
-                logger.info({LOG} Runway Frames: uploading image_ref_{i}...)
+                logger.info(f"{LOG} Runway Frames: uploading image_ref_{i}...")
                 aid = _runway_upload_image(token, ref_img, email)
                 asset_ids.append((i, aid))
 
@@ -1199,7 +1199,7 @@ class UseapiRunwayFramesGenerate:
         for i, aid in asset_ids:
             body[f"imageAssetId{i}"] = aid
 
-        logger.info({LOG} Runway Frames: num_images={num_images}, prompt='{text_prompt[:60]}')
+        logger.info(f"{LOG} Runway Frames: num_images={num_images}, prompt='{text_prompt[:60]}'")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
         data = _check_status(status, raw, url, "Runway Frames create")
@@ -1210,7 +1210,7 @@ class UseapiRunwayFramesGenerate:
                 f"{LOG} Runway Frames: 'taskId' missing in response. "
                 f"Response: {data}"
             )
-        logger.info({LOG} Runway Frames: task created. taskId={task_id[:50]}...)
+        logger.info(f"{LOG} Runway Frames: task created. taskId={task_id[:50]}...")
 
         pbar = _make_pbar()
         artifacts = _runway_frames_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
@@ -1263,7 +1263,7 @@ class UseapiRunwayImageUpscaler:
         qs = urllib.parse.urlencode(params)
         url = f"{BASE_URL}/runwayml/image_upscaler/?{qs}"
 
-        logger.info({LOG} Runway Image Upscaler: {width}x{height} for {image_url[:60]}...)
+        logger.info(f"{LOG} Runway Image Upscaler: {width}x{height} for {image_url[:60]}...")
         headers = {"Authorization": f"Bearer {token}"}
         # NOTE: response is raw binary image, NOT JSON — bypass _check_status
         status, raw = _make_request(url, "GET", headers, None, timeout=120)
@@ -1273,7 +1273,7 @@ class UseapiRunwayImageUpscaler:
                 f"Response: {raw[:200].decode(errors='replace')}"
             )
         tensor = _bytes_to_tensor(raw)
-        logger.info({LOG} Runway Image Upscaler: complete. Shape={tensor.shape})
+        logger.info(f"{LOG} Runway Image Upscaler: complete. Shape={tensor.shape}")
         return (tensor,)
 
 
@@ -1324,7 +1324,7 @@ class UseapiLoadVideoFrame:
 
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         tensor = torch.from_numpy(rgb.astype(np.float32) / 255.0).unsqueeze(0)
-        logger.info({LOG} Load Video Frame: frame {frame_number} extracted. Shape={tensor.shape})
+        logger.info(f"{LOG} Load Video Frame: frame {frame_number} extracted. Shape={tensor.shape}")
         return (tensor,)
 
 
@@ -1383,7 +1383,7 @@ class UseapiPreviewVideo:
             lines.append(f"Path: {video_path} (not found)")
 
         info = "\n".join(lines)
-        logger.info({LOG} Preview Video:\n{info})
+        logger.info(f"{LOG} Preview Video:\n{info}")
         return {"ui": {"video": ui_videos}, "result": (info,)}
 
 
@@ -1412,7 +1412,7 @@ class UseapiVeoVideoToGif:
         token = _get_token(api_token)
         url = f"{BASE_URL}/google-flow/videos/gif"
         body = {"mediaGenerationId": media_generation_id}
-        logger.info({LOG} Veo Video to GIF: mediaGenerationId={media_generation_id[:50]}...)
+        logger.info(f"{LOG} Veo Video to GIF: mediaGenerationId={media_generation_id[:50]}...")
         headers = _auth_headers(token)
         pbar = _make_pbar()
         _pt, _done = (None, None)
@@ -1431,7 +1431,7 @@ class UseapiVeoVideoToGif:
             raise RuntimeError(f"{LOG} Veo Video to GIF: no encodedGif in response: {data}")
         gif_bytes = base64.b64decode(encoded)
         gif_path = _save_bytes_to_cache(gif_bytes, ".gif")
-        logger.info({LOG} Veo Video to GIF: complete. Path={gif_path})
+        logger.info(f"{LOG} Veo Video to GIF: complete. Path={gif_path}")
         return (gif_path,)
 
 
@@ -1499,7 +1499,7 @@ class UseapiVeoConcatenate:
             raise ValueError(f"{LOG} Veo Concatenate: at least 2 mediaGenerationIds required.")
         url = f"{BASE_URL}/google-flow/videos/concatenate"
         body = {"media": media_list}
-        logger.info({LOG} Veo Concatenate: {len(media_list)} videos...)
+        logger.info(f"{LOG} Veo Concatenate: {len(media_list)} videos...")
         headers = _auth_headers(token)
         pbar = _make_pbar()
         _pt, _done = (None, None)
@@ -1518,7 +1518,7 @@ class UseapiVeoConcatenate:
             raise RuntimeError(f"{LOG} Veo Concatenate: no encodedVideo in response: {data}")
         video_bytes = base64.b64decode(encoded)
         video_path = _save_bytes_to_cache(video_bytes, ".mp4")
-        logger.info({LOG} Veo Concatenate: complete. Path={video_path})
+        logger.info(f"{LOG} Veo Concatenate: complete. Path={video_path}")
         return (video_path,)
 
 
@@ -1584,7 +1584,7 @@ class UseapiRunwayImages:
             if aid.strip():
                 body[f"imageAssetId{i}"] = aid.strip()
 
-        logger.info({LOG} Runway Images: model={model}, prompt='{text_prompt[:60]}')
+        logger.info(f"{LOG} Runway Images: model={model}, prompt='{text_prompt[:60]}'")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
         data = _check_status(status, raw, url, "Runway images create")
@@ -1595,7 +1595,7 @@ class UseapiRunwayImages:
                 f"{LOG} Runway Images: 'taskId' missing in response. "
                 f"Response: {data}"
             )
-        logger.info({LOG} Runway Images: task created. taskId={task_id[:50]}...)
+        logger.info(f"{LOG} Runway Images: task created. taskId={task_id[:50]}...")
 
         pbar = _make_pbar()
         artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
@@ -1645,7 +1645,7 @@ class UseapiRunwayGen4Upscale:
         body = {"assetId": asset_id, "exploreMode": explore_mode, "maxJobs": max_jobs}
         if email.strip():
             body["email"] = email.strip()
-        logger.info({LOG} Runway Gen4 Upscale: assetId={asset_id[:50]}...)
+        logger.info(f"{LOG} Runway Gen4 Upscale: assetId={asset_id[:50]}...")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
         data = _check_status(status, raw, url, "Runway gen4 upscale")
@@ -1779,7 +1779,7 @@ class UseapiRunwayActTwoVoice:
         }
         if email.strip():
             body["email"] = email.strip()
-        logger.info({LOG} Runway Act Two Voice: video={video_asset_id[:40]}..., voiceId={voice_id})
+        logger.info(f"{LOG} Runway Act Two Voice: video={video_asset_id[:40]}..., voiceId={voice_id}")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
         data = _check_status(status, raw, url, "Runway act-two-voice")
@@ -1848,7 +1848,7 @@ class UseapiRunwayLipsync:
             body["voice_text"] = voice_text.strip()
         if email.strip():
             body["email"] = email.strip()
-        logger.info({LOG} Runway Lipsync: model_id={model_id}...)
+        logger.info(f"{LOG} Runway Lipsync: model_id={model_id}...")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
         data = _check_status(status, raw, url, "Runway lipsync")
@@ -1901,7 +1901,7 @@ class UseapiRunwaySuperSlowMotion:
         body = {"assetId": asset_id, "speed": speed, "maxJobs": max_jobs}
         if email.strip():
             body["email"] = email.strip()
-        logger.info({LOG} Runway Super Slow Motion: assetId={asset_id[:50]}..., speed={speed})
+        logger.info(f"{LOG} Runway Super Slow Motion: assetId={asset_id[:50]}..., speed={speed}")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
         data = _check_status(status, raw, url, "Runway super slow motion")
@@ -1946,14 +1946,14 @@ class UseapiRunwayTranscribe:
         token = _get_token(api_token)
         params = {"assetId": asset_id, "language": language}
         url = f"{BASE_URL}/runwayml/transcribe?{urllib.parse.urlencode(params)}"
-        logger.info({LOG} Runway Transcribe: assetId={asset_id[:50]}..., language={language})
+        logger.info(f"{LOG} Runway Transcribe: assetId={asset_id[:50]}..., language={language}")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "GET", headers, None, timeout=120)
         data = _check_status(status, raw, url, "Runway transcribe")
         words = data.get("words", [])
         full_text = " ".join(w.get("text", "") for w in words)
         words_json = json.dumps(words)
-        logger.info({LOG} Runway Transcribe: {len(words)} words transcribed.)
+        logger.info(f"{LOG} Runway Transcribe: {len(words)} words transcribed.")
         return (full_text, words_json)
 
 
@@ -1998,7 +1998,7 @@ class UseapiRunwayGen3TurboExtend:
             body["seed"] = seed
         if email.strip():
             body["email"] = email.strip()
-        logger.info({LOG} Runway Gen3 Turbo Extend: assetId={asset_id[:50]}...)
+        logger.info(f"{LOG} Runway Gen3 Turbo Extend: assetId={asset_id[:50]}...")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
         data = _check_status(status, raw, url, "Runway gen3turbo extend")

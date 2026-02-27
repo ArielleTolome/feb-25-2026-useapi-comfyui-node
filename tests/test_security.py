@@ -64,9 +64,10 @@ class TestSecurity(unittest.TestCase):
         # and mock isOpened to return True
         cap_mock = MagicMock()
         cap_mock.isOpened.return_value = True
+        cap_mock.get.return_value = 100
         cap_mock.read.return_value = (True, np.zeros((100, 100, 3), dtype=np.uint8))
 
-        with patch("cv2.VideoCapture", return_value=cap_mock):
+        with patch("useapi_nodes.cv2.VideoCapture", return_value=cap_mock):
              # Should not raise ValueError
              self.load_node.execute(valid_path, 0)
 

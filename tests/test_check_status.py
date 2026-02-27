@@ -28,15 +28,15 @@ class TestCheckStatus(unittest.TestCase):
         self.assertEqual(result, {})
 
     def test_status_429(self):
-        with self.assertRaisesRegex(RuntimeError, r"Rate limited \(429\)"):
+        with self.assertRaisesRegex(RuntimeError, r"Rate Limited \(429\)"):
             _check_status(429, b"{}", "http://test.url")
 
     def test_status_503(self):
-        with self.assertRaisesRegex(RuntimeError, r"Service unavailable \(503\)"):
+        with self.assertRaisesRegex(RuntimeError, r"Server Error \(503\)"):
             _check_status(503, b"{}", "http://test.url")
 
     def test_status_408(self):
-        with self.assertRaisesRegex(RuntimeError, r"Request timeout \(408\)"):
+        with self.assertRaisesRegex(RuntimeError, r"Request Timeout \(408\)"):
             _check_status(408, b"{}", "http://test.url")
 
     def test_status_401(self):
@@ -65,10 +65,10 @@ class TestCheckStatus(unittest.TestCase):
             _check_status(403, body, "http://test.url")
 
     def test_status_generic_error(self):
-        with self.assertRaisesRegex(RuntimeError, r"HTTP 500 from http://test\.url"):
+        with self.assertRaisesRegex(RuntimeError, r"Server Error \(500\)"):
             _check_status(500, b"Internal Server Error", "http://test.url")
 
     def test_context_logging(self):
         # Verify context is prepended
-        with self.assertRaisesRegex(RuntimeError, r"\[MyContext\] Rate limited"):
+        with self.assertRaisesRegex(RuntimeError, r"\[MyContext\] Rate Limited"):
             _check_status(429, b"{}", "http://test.url", context="MyContext")
