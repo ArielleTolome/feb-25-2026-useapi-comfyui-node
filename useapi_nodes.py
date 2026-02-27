@@ -615,8 +615,9 @@ class UseapiGoogleFlowGenerateImage:
                         _err = _resp.get("error") if isinstance(_resp.get("error"), dict) else {}
                         _rmsg = _resp.get("message", "") or _err.get("message", "")
                         if "reCAPTCHA" in _rmsg or "captcha" in _rmsg.lower():
-                            print(f"{LOG} Google Flow Image: reCAPTCHA 403, retrying ({_attempt + 1}/3)...")
-                            time.sleep(8)
+                            wait_time = 2 * (2 ** _attempt)
+                            print(f"{LOG} Google Flow Image: reCAPTCHA 403, retrying ({_attempt + 1}/3) in {wait_time}s...")
+                            time.sleep(wait_time)
                             continue
                     except Exception:
                         pass
