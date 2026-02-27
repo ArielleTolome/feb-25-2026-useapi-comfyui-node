@@ -25,7 +25,7 @@ except ImportError:
     from unittest.mock import MagicMock
     sys.modules["cv2"] = MagicMock()
 
-from useapi_nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS, _get_token
+from useapi_nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS, _get_token, _extract_runway_task_id
 
 EXPECTED_NODES = [
     "UseapiTokenFromEnv",
@@ -138,6 +138,25 @@ class TestTokenUtility(unittest.TestCase):
     def test_raises_when_whitespace_only(self):
         with self.assertRaises(ValueError):
             _get_token("   ")
+
+
+class TestRunwayTaskIdExtraction(unittest.TestCase):
+    def test_extracts_nested_task_id(self):
+        data = {"task": {"taskId": "nested-123"}}
+        self.assertEqual(_extract_runway_task_id(data), "nested-123")
+
+    def test_extracts_top_level_task_id(self):
+        data = {"taskId": "top-456"}
+        self.assertEqual(_extract_runway_task_id(data), "top-456")
+
+    def test_nested_takes_precedence(self):
+        data = {"task": {"taskId": "nested-789"}, "taskId": "top-000"}
+        self.assertEqual(_extract_runway_task_id(data), "nested-789")
+
+    def test_returns_empty_string_if_missing(self):
+        self.assertEqual(_extract_runway_task_id({}), "")
+        self.assertEqual(_extract_runway_task_id({"other": "value"}), "")
+        self.assertEqual(_extract_runway_task_id({"task": {}}), "")
 
 
 if __name__ == "__main__":
