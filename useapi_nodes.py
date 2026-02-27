@@ -163,14 +163,14 @@ def _check_status(status: int, body: bytes, url: str, context: str = "") -> dict
         if "reCAPTCHA" in (msg + raw_text) or "captcha" in (msg + raw_text).lower():
             raise RuntimeError(
                 f"{label} Transient reCAPTCHA error (403). This is an intermittent Google-side "
-                "limit. Retry in a few seconds. URL: {url}\nDetail: {detail}"
+                f"limit. Retry in a few seconds. URL: {url}\nDetail: {detail}"
             )
         if detail == "API error: 403":
             raise RuntimeError(
                 f"{label} Google returned 403 to Useapi.net (\"API error: 403\"). "
                 "This is usually a transient Google-side block — retry in a few seconds. "
                 "If it persists, verify that your Google/service account has access to this "
-                "model at useapi.net. URL: {url}\nRaw response: {raw_text[:300]}"
+                f"model at useapi.net. URL: {url}\nRaw response: {raw_text[:300]}"
             )
         raise RuntimeError(
             f"{label} Forbidden (403). The Google/service account linked to your "
@@ -190,7 +190,7 @@ def _check_status(status: int, body: bytes, url: str, context: str = "") -> dict
     if status == 429:
         raise RuntimeError(
             f"{label} Rate Limited (429). You are sending too many requests. "
-            "Wait 5-10s or add more Useapi.net accounts. URL: {url}\nDetail: {detail}"
+            f"Wait 5-10s or add more Useapi.net accounts. URL: {url}\nDetail: {detail}"
         )
     if status in (500, 502, 503, 504):
         raise RuntimeError(
@@ -310,7 +310,7 @@ def _runway_poll(task_id: str, token: str,
             )
     raise RuntimeError(
         f"{LOG} Runway task timed out after {max_wait}s. "
-        "Try increasing the 'max_wait' input value. task_id={task_id}"
+        f"Try increasing the 'max_wait' input value. task_id={task_id}"
     )
 
 
