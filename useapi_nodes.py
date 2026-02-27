@@ -17,6 +17,9 @@ import threading
 import urllib.request
 import urllib.error
 import urllib.parse
+import http.client
+import socket
+import ssl
 import numpy as np
 import torch
 from PIL import Image
@@ -31,6 +34,7 @@ except ImportError:
 LOG = "[Useapi.net]"
 BASE_URL = "https://api.useapi.net/v1"
 VIDEO_CACHE_DIR = os.path.join(tempfile.gettempdir(), "comfyui_useapi_videos")
+_thread_local = threading.local()
 _RUNWAY_STYLES = [
     "none", "vivid", "vivid-warm", "vivid-cool", "high-contrast",
     "high-contrast-warm", "high-contrast-cool", "bw", "bw-contrast",
@@ -73,20 +77,59 @@ _DEFAULT_HEADERS = {
 }
 
 
+def _get_connection(scheme, netloc, timeout):
+    """Get or create a persistent connection for the current thread."""
+    if not hasattr(_thread_local, "connections"):
+        _thread_local.connections = {}
+
+    key = (scheme, netloc)
+    conn = _thread_local.connections.get(key)
+
+    # Simple check if connection is still alive not strictly possible without sending,
+    # but we will rely on retry logic for closed connections.
+    if conn is None:
+        if scheme == "https":
+            ctx = ssl.create_default_context()
+            conn = http.client.HTTPSConnection(netloc, timeout=timeout, context=ctx)
+        else:
+            conn = http.client.HTTPConnection(netloc, timeout=timeout)
+        _thread_local.connections[key] = conn
+
+    return conn
+
+
 def _make_request(url: str, method: str = "GET", headers: dict = None,
                   data: bytes = None, timeout: int = 600):
-    """Make an HTTP request. Returns (status_code, response_body_bytes)."""
+    """Make an HTTP request using persistent connections. Returns (status_code, body)."""
+    parsed = urllib.parse.urlsplit(url)
+    scheme, netloc, path = parsed.scheme, parsed.netloc, parsed.path
+    if parsed.query:
+        path += "?" + parsed.query
+
     merged = {**_DEFAULT_HEADERS, **(headers or {})}
-    req = urllib.request.Request(url, data=data, headers=merged, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.status, resp.read()
-    except urllib.error.HTTPError as e:
-        return e.code, e.read()
-    except urllib.error.URLError as e:
-        raise RuntimeError(f"{LOG} Network error reaching {url}: {e.reason}")
-    except TimeoutError:
-        raise RuntimeError(f"{LOG} Request timed out after {timeout}s: {url}")
+
+    # Retry loop for stale connections
+    for attempt in range(2):
+        conn = _get_connection(scheme, netloc, timeout)
+        try:
+            conn.request(method, path, body=data, headers=merged)
+            resp = conn.getresponse()
+            body = resp.read()
+            # Ensure we read the body to allow connection reuse, handled by read() above
+            return resp.status, body
+        except (http.client.RemoteDisconnected, BrokenPipeError, ConnectionResetError):
+            # Server closed connection or network issue; discard and retry once
+            conn.close()
+            key = (scheme, netloc)
+            if key in getattr(_thread_local, "connections", {}):
+                del _thread_local.connections[key]
+            if attempt == 0:
+                continue
+            raise RuntimeError(f"{LOG} Connection lost reaching {url}")
+        except (socket.timeout, TimeoutError):
+            raise RuntimeError(f"{LOG} Request timed out after {timeout}s: {url}")
+        except (socket.error, http.client.HTTPException) as e:
+            raise RuntimeError(f"{LOG} Network error reaching {url}: {e}")
 
 
 def _check_status(status: int, body: bytes, url: str, context: str = "") -> dict:
