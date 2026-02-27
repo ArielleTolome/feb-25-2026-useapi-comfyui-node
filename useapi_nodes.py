@@ -126,8 +126,8 @@ def _get_token(api_token: str) -> str:
         token = os.environ.get("USEAPI_TOKEN", "").strip()
     if not token:
         raise ValueError(
-            f"{LOG} API token not provided. "
-            "Set the USEAPI_TOKEN environment variable or wire the api_token input."
+            f"{LOG} API token is missing. Please provide it via the 'api_token' input "
+            "or set the 'USEAPI_TOKEN' environment variable. Ensure it has no extra whitespace."
         )
     return token
 
@@ -222,9 +222,15 @@ def _make_request(url: str, method: str = "GET", headers: dict = None,
     except urllib.error.HTTPError as e:
         return e.code, e.read()
     except urllib.error.URLError as e:
-        raise RuntimeError(f"{LOG} Network error reaching {url}: {e.reason}")
+        raise RuntimeError(
+            f"{LOG} Network error reaching {url}. "
+            f"Please check your internet connection. Detail: {e.reason}"
+        )
     except TimeoutError:
-        raise RuntimeError(f"{LOG} Request timed out after {timeout}s: {url}")
+        raise RuntimeError(
+            f"{LOG} Request timed out after {timeout}s while connecting to {url}. "
+            "Try increasing 'default_timeout' in nodes_config.json."
+        )
 
 
 def _check_status(status: int, body: bytes, url: str, context: str = "") -> dict:
@@ -235,24 +241,19 @@ def _check_status(status: int, body: bytes, url: str, context: str = "") -> dict
         data = {}
     if status == 200:
         return data
+
     detail = data.get("error", body[:300].decode(errors="replace"))
-    label = f"[{context}] " if context else ""
-    if status == 429:
+    label = f"{LOG} [{context}]" if context else LOG
+
+    if status == 400:
         raise RuntimeError(
-            f"{LOG} {label}Rate limited (429). Wait 5-10s or add more Useapi.net accounts. "
-            f"URL: {url}\nDetail: {detail}"
-        )
-    if status == 503:
-        raise RuntimeError(
-            f"{LOG} {label}Service unavailable (503). Retry in a moment. URL: {url}\nDetail: {detail}"
-        )
-    if status == 408:
-        raise RuntimeError(
-            f"{LOG} {label}Request timeout (408). Generation took too long. URL: {url}\nDetail: {detail}"
+            f"{label} Bad Request (400). Please check your input parameters "
+            f"(prompts, models, aspect ratios). URL: {url}\nDetail: {detail}"
         )
     if status == 401:
         raise RuntimeError(
-            f"{LOG} {label}Unauthorized (401). Check your Useapi.net token. URL: {url}"
+            f"{label} Unauthorized (401). Your API token is invalid or expired. "
+            f"Please verify it has no extra whitespace/newlines. URL: {url}"
         )
     if status == 403:
         _err_obj = data.get("error") if isinstance(data.get("error"), dict) else {}
@@ -260,24 +261,43 @@ def _check_status(status: int, body: bytes, url: str, context: str = "") -> dict
         raw_text = body[:500].decode(errors="replace") if body else ""
         if "reCAPTCHA" in (msg + raw_text) or "captcha" in (msg + raw_text).lower():
             raise RuntimeError(
-                f"{LOG} {label}Transient reCAPTCHA error (403) — this is an intermittent "
-                "Google-side rate limit, not a configuration issue. Retry in a few seconds. "
-                f"URL: {url}\nDetail: {detail}"
+                f"{label} Transient reCAPTCHA error (403). This is an intermittent Google-side "
+                f"limit. Retry in a few seconds. URL: {url}\nDetail: {detail}"
             )
         if detail == "API error: 403":
             raise RuntimeError(
-                f"{LOG} {label}Google returned 403 to Useapi.net (\"API error: 403\"). "
+                f"{label} Google returned 403 to Useapi.net (\"API error: 403\"). "
                 "This is usually a transient Google-side block — retry in a few seconds. "
                 "If it persists, verify that your Google/service account has access to this "
-                "model at useapi.net (Settings > Accounts). "
-                f"URL: {url}\nRaw response: {raw_text[:300]}"
+                f"model at useapi.net. URL: {url}\nRaw response: {raw_text[:300]}"
             )
         raise RuntimeError(
-            f"{LOG} {label}Forbidden (403). The Google/service account linked to your "
-            f"Useapi.net token may not have access to this API or model. "
+            f"{label} Forbidden (403). The Google/service account linked to your "
+            "Useapi.net token may not have access to this API or model. "
             f"Verify your account settings at useapi.net. URL: {url}\nDetail: {detail}"
         )
-    raise RuntimeError(f"{LOG} {label}HTTP {status} from {url}.\nDetail: {detail}")
+    if status == 404:
+        raise RuntimeError(
+            f"{label} Not Found (404). The requested resource or endpoint was not found. "
+            f"URL: {url}\nDetail: {detail}"
+        )
+    if status == 408:
+        raise RuntimeError(
+            f"{label} Request Timeout (408). The generation took too long. "
+            f"Try increasing the timeout in nodes_config.json. URL: {url}\nDetail: {detail}"
+        )
+    if status == 429:
+        raise RuntimeError(
+            f"{label} Rate Limited (429). You are sending too many requests. "
+            f"Wait 5-10s or add more Useapi.net accounts. URL: {url}\nDetail: {detail}"
+        )
+    if status in (500, 502, 503, 504):
+        raise RuntimeError(
+            f"{label} Server Error ({status}). The service is temporarily unavailable. "
+            f"Please retry in a moment. URL: {url}\nDetail: {detail}"
+        )
+
+    raise RuntimeError(f"{label} HTTP {status} from {url}.\nDetail: {detail}")
 
 
 def _tensor_to_png_bytes(tensor: torch.Tensor) -> bytes:
@@ -379,10 +399,12 @@ def _runway_poll(task_id: str, token: str,
             continue
         if task_status in ("FAILED", "CANCELLED"):
             raise RuntimeError(
-                f"{LOG} Runway task ended with status '{task_status}'. task_id={task_id}"
+                f"{LOG} Runway task ended with status '{task_status}'. "
+                f"Please check your account limits or prompt. task_id={task_id}"
             )
     raise RuntimeError(
-        f"{LOG} Runway task timed out after {max_wait}s. task_id={task_id}"
+        f"{LOG} Runway task timed out after {max_wait}s. "
+        f"Try increasing the 'max_wait' input value. task_id={task_id}"
     )
 
 
@@ -568,7 +590,10 @@ class UseapiVeoGenerate:
         video_url = video_meta.get("fifeUrl", "")
         media_gen_id = video_meta.get("mediaGenerationId", "")
         if not video_url:
-            raise RuntimeError(f"{LOG} Veo generate: no fifeUrl in response. video_meta={video_meta}")
+            raise RuntimeError(
+                f"{LOG} Veo generate: 'fifeUrl' missing in response. "
+                f"The API might have changed. Detail: {video_meta}"
+            )
 
         print(f"{LOG} Veo Generate: complete. mediaGenerationId={media_gen_id[:50]}...")
         video_path = _download_file(video_url, ".mp4")
@@ -897,8 +922,8 @@ class UseapiGoogleFlowImageUpscale:
         encoded = data.get("encodedImage", "")
         if not encoded:
             raise RuntimeError(
-                f"{LOG} Google Flow Image Upscale: no encodedImage in response. "
-                "Note: upscaling only supports nano-banana-pro generated images."
+                f"{LOG} Google Flow Image Upscale: 'encodedImage' missing in response. "
+                "Note: upscaling is only supported for 'nano-banana-pro' generated images."
             )
         img_bytes = base64.b64decode(encoded)
         tensor = _bytes_to_tensor(img_bytes)
@@ -1018,7 +1043,10 @@ class UseapiRunwayGenerate:
 
         task_id = data.get("task", {}).get("taskId", "")
         if not task_id:
-            raise RuntimeError(f"{LOG} Runway create: no taskId in response: {data}")
+            raise RuntimeError(
+                f"{LOG} Runway create: 'taskId' missing in response. "
+                f"Check your account status and inputs. Response: {data}"
+            )
         print(f"{LOG} Runway Generate: task created. taskId={task_id[:50]}...")
 
         pbar = _make_pbar()
@@ -1086,7 +1114,10 @@ class UseapiRunwayVideoToVideo:
 
         task_id = _extract_runway_task_id(data)
         if not task_id:
-            raise RuntimeError(f"{LOG} Runway video-to-video: no taskId in response: {data}")
+            raise RuntimeError(
+                f"{LOG} Runway video-to-video: 'taskId' missing in response. "
+                f"Response: {data}"
+            )
 
         pbar = _make_pbar()
         artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
@@ -1172,7 +1203,10 @@ class UseapiRunwayFramesGenerate:
 
         task_id = data.get("taskId", "") or data.get("task", {}).get("taskId", "")
         if not task_id:
-            raise RuntimeError(f"{LOG} Runway Frames: no taskId in response: {data}")
+            raise RuntimeError(
+                f"{LOG} Runway Frames: 'taskId' missing in response. "
+                f"Response: {data}"
+            )
         print(f"{LOG} Runway Frames: task created. taskId={task_id[:50]}...")
 
         pbar = _make_pbar()
@@ -1554,7 +1588,10 @@ class UseapiRunwayImages:
 
         task_id = _extract_runway_task_id(data)
         if not task_id:
-            raise RuntimeError(f"{LOG} Runway Images: no taskId in response: {data}")
+            raise RuntimeError(
+                f"{LOG} Runway Images: 'taskId' missing in response. "
+                f"Response: {data}"
+            )
         print(f"{LOG} Runway Images: task created. taskId={task_id[:50]}...")
 
         pbar = _make_pbar()
@@ -1612,7 +1649,10 @@ class UseapiRunwayGen4Upscale:
 
         task_id = _extract_runway_task_id(data)
         if not task_id:
-            raise RuntimeError(f"{LOG} Runway Gen4 Upscale: no taskId in response: {data}")
+            raise RuntimeError(
+                f"{LOG} Runway Gen4 Upscale: 'taskId' missing in response. "
+                f"Response: {data}"
+            )
 
         pbar = _make_pbar()
         artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
@@ -1683,7 +1723,10 @@ class UseapiRunwayActTwo:
 
         task_id = _extract_runway_task_id(data)
         if not task_id:
-            raise RuntimeError(f"{LOG} Runway Act Two: no taskId in response: {data}")
+            raise RuntimeError(
+                f"{LOG} Runway Act Two: 'taskId' missing in response. "
+                f"Response: {data}"
+            )
 
         pbar = _make_pbar()
         artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
@@ -1740,7 +1783,10 @@ class UseapiRunwayActTwoVoice:
 
         task_id = _extract_runway_task_id(data)
         if not task_id:
-            raise RuntimeError(f"{LOG} Runway Act Two Voice: no taskId in response: {data}")
+            raise RuntimeError(
+                f"{LOG} Runway Act Two Voice: 'taskId' missing in response. "
+                f"Response: {data}"
+            )
 
         pbar = _make_pbar()
         artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
@@ -1806,7 +1852,10 @@ class UseapiRunwayLipsync:
 
         task_id = _extract_runway_task_id(data)
         if not task_id:
-            raise RuntimeError(f"{LOG} Runway Lipsync: no taskId in response: {data}")
+            raise RuntimeError(
+                f"{LOG} Runway Lipsync: 'taskId' missing in response. "
+                f"Response: {data}"
+            )
 
         pbar = _make_pbar()
         artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
@@ -1856,7 +1905,10 @@ class UseapiRunwaySuperSlowMotion:
 
         task_id = _extract_runway_task_id(data)
         if not task_id:
-            raise RuntimeError(f"{LOG} Runway Super Slow Motion: no taskId in response: {data}")
+            raise RuntimeError(
+                f"{LOG} Runway Super Slow Motion: 'taskId' missing in response. "
+                f"Response: {data}"
+            )
 
         pbar = _make_pbar()
         artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
@@ -1950,7 +2002,10 @@ class UseapiRunwayGen3TurboExtend:
 
         task_id = _extract_runway_task_id(data)
         if not task_id:
-            raise RuntimeError(f"{LOG} Runway Gen3 Turbo Extend: no taskId in response: {data}")
+            raise RuntimeError(
+                f"{LOG} Runway Gen3 Turbo Extend: 'taskId' missing in response. "
+                f"Response: {data}"
+            )
 
         pbar = _make_pbar()
         artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
