@@ -50,6 +50,21 @@ _RUNWAY_STYLES = [
 # Images endpoint does not accept "none" as a style value
 _RUNWAY_STYLES_IMAGES = [s for s in _RUNWAY_STYLES if s != "none"]
 
+_TIMEOUT_POLL = 30
+_TIMEOUT_SHORT = 60
+_TIMEOUT_MED = 120
+_TIMEOUT_LONG = 300
+_TIMEOUT_XLONG = 600
+_ESTIMATED_SECS_VEO_GEN = 150
+_ESTIMATED_SECS_VEO_UPSCALE = 60
+_ESTIMATED_SECS_VEO_EXTEND = 150
+_ESTIMATED_SECS_GOOGLE_FLOW_IMAGE = 120
+_ESTIMATED_SECS_VEO_GIF = 30
+_ESTIMATED_SECS_VEO_CONCAT = 90
+_RETRY_ATTEMPTS_RECAPTCHA = 3
+_RETRY_DELAY_RECAPTCHA = 8.0
+
+
 _CONFIG = {}
 
 def _load_config():
@@ -331,7 +346,7 @@ def _download_file(url: str, ext: str = ".mp4") -> str:
         return dest
     logger.info(f"{LOG} Downloading to {dest} ...")
     opener = urllib.request.build_opener(_SafeRedirectHandler())
-    with opener.open(url, timeout=120) as resp:
+    with opener.open(url, timeout=_TIMEOUT_MED) as resp:
         data = resp.read()
     with open(dest, "wb") as f:
         f.write(data)
@@ -374,7 +389,7 @@ def _runway_poll(task_id: str, token: str,
                 _elapsed = time.time() - _start
                 pbar.update_absolute(min(int(_elapsed / max_wait * 95), 95), 100)
 
-        status, raw = _make_request(poll_url, "GET", headers, None, 30)
+        status, raw = _make_request(poll_url, "GET", headers, None, _TIMEOUT_POLL)
         if status in [500, 502, 503, 504, 520, 522, 524]:
             logger.info(f"{LOG} Runway poll transient error {status}. Retrying...")
             continue
@@ -429,7 +444,7 @@ def _runway_upload_image(token: str, image_tensor: torch.Tensor,
     url = f"{BASE_URL}/runwayml/assets?{urllib.parse.urlencode(params)}"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "image/png"}
     logger.info(f"{LOG} Runway: uploading image asset...")
-    status, raw = _make_request(url, "POST", headers, png_bytes, timeout=60)
+    status, raw = _make_request(url, "POST", headers, png_bytes, timeout=_TIMEOUT_SHORT)
     data = _check_status(status, raw, url, "Runway upload asset")
     asset_id = data.get("assetId", "") or data.get("id", "")
     if not asset_id:
@@ -472,6 +487,60 @@ def _start_progress_thread(pbar, estimated_secs: float):
     t.start()
     return t, done
 
+
+
+def _send_json(url: str, body: dict, token: str, timeout: int, context: str):
+    """Send JSON POST request and check status. Includes optional reCAPTCHA retry logic."""
+    headers = _auth_headers(token)
+
+    # reCAPTCHA retry logic - used directly for all JSON requests if they encounter 403
+    for _attempt in range(_RETRY_ATTEMPTS_RECAPTCHA):
+        status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=timeout)
+        if status == 403 and _attempt < _RETRY_ATTEMPTS_RECAPTCHA - 1:
+            try:
+                _resp = json.loads(raw) if raw else {}
+                _err = _resp.get("error") if isinstance(_resp.get("error"), dict) else {}
+                _rmsg = _resp.get("message", "") or _err.get("message", "")
+                if "reCAPTCHA" in _rmsg or "captcha" in _rmsg.lower():
+                    wait_time = _RETRY_DELAY_RECAPTCHA * (2 ** _attempt)
+                    logger.info(f"{LOG} {context}: reCAPTCHA 403, retrying ({_attempt + 1}/{_RETRY_ATTEMPTS_RECAPTCHA}) in {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+            except Exception:
+                pass
+        break
+
+    data = _check_status(status, raw, url, context)
+    return data
+
+def _submit_with_progress(url: str, body: dict, token: str, estimated_secs: float, timeout: int, context: str):
+    """Submit request with a progress bar thread."""
+    pbar = _make_pbar()
+    _pt, _done = (None, None)
+    if pbar is not None:
+        _pt, _done = _start_progress_thread(pbar, estimated_secs)
+    try:
+        data = _send_json(url, body, token, timeout, context)
+    finally:
+        if _done is not None:
+            _done.set(); _pt.join(timeout=1)
+    if pbar is not None:
+        pbar.update_absolute(100, 100)
+    return data
+
+def _runway_submit_and_poll(url: str, body: dict, token: str, context: str, poll_interval: int, max_wait: int, timeout: int = _TIMEOUT_SHORT):
+    """Submit Runway task, extract taskId, and poll until completion."""
+    data = _send_json(url, body, token, timeout, context)
+    task_id = _extract_runway_task_id(data)
+    if not task_id:
+        raise RuntimeError(
+            f"{LOG} {context}: 'taskId' missing in response. "
+            f"Response: {data}"
+        )
+    logger.info(f"{LOG} {context}: task created. taskId={task_id[:50]}...")
+    pbar = _make_pbar()
+    artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
+    return artifacts, task_id
 
 # ── Node classes added in Tasks 3-16 ─────────────────────────────────────────
 
@@ -567,20 +636,7 @@ class UseapiVeoGenerate:
                 body[f"referenceImage_{i}"] = ref.strip()
 
         logger.info(f"{LOG} Veo Generate: model={model}, prompt='{prompt[:60]}...'")
-        headers = _auth_headers(token)
-        pbar = _make_pbar()
-        _pt, _done = (None, None)
-        if pbar is not None:
-            _pt, _done = _start_progress_thread(pbar, 150)
-        try:
-            # Use None for timeout to respect global config default
-            status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=None)
-        finally:
-            if _done is not None:
-                _done.set(); _pt.join(timeout=1)
-        data = _check_status(status, raw, url, "Veo generate")
-        if pbar is not None:
-            pbar.update_absolute(100, 100)
+        data = _submit_with_progress(url, body, token, _ESTIMATED_SECS_VEO_GEN, None, "Veo generate")
 
         ops = data.get("operations", [])
         if not ops:
@@ -630,19 +686,7 @@ class UseapiVeoUpscale:
         url = f"{BASE_URL}/google-flow/videos/upscale"
         body = {"mediaGenerationId": media_generation_id, "resolution": resolution}
         logger.info(f"{LOG} Veo Upscale: {resolution}, mediaGenerationId={media_generation_id[:50]}...")
-        headers = _auth_headers(token)
-        pbar = _make_pbar()
-        _pt, _done = (None, None)
-        if pbar is not None:
-            _pt, _done = _start_progress_thread(pbar, 60)
-        try:
-            status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=600)
-        finally:
-            if _done is not None:
-                _done.set(); _pt.join(timeout=1)
-        data = _check_status(status, raw, url, "Veo upscale")
-        if pbar is not None:
-            pbar.update_absolute(100, 100)
+        data = _submit_with_progress(url, body, token, _ESTIMATED_SECS_VEO_UPSCALE, _TIMEOUT_XLONG, "Veo upscale")
 
         ops = data.get("operations", [])
         if not ops:
@@ -689,19 +733,7 @@ class UseapiVeoExtend:
         if seed != 0:
             body["seed"] = seed & 0x7FFFFFFF
         logger.info(f"{LOG} Veo Extend: mediaGenerationId={media_generation_id[:50]}...")
-        headers = _auth_headers(token)
-        pbar = _make_pbar()
-        _pt, _done = (None, None)
-        if pbar is not None:
-            _pt, _done = _start_progress_thread(pbar, 150)
-        try:
-            status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=600)
-        finally:
-            if _done is not None:
-                _done.set(); _pt.join(timeout=1)
-        data = _check_status(status, raw, url, "Veo extend")
-        if pbar is not None:
-            pbar.update_absolute(100, 100)
+        data = _submit_with_progress(url, body, token, _ESTIMATED_SECS_VEO_EXTEND, _TIMEOUT_XLONG, "Veo extend")
 
         ops = data.get("operations", [])
         if not ops:
@@ -776,33 +808,7 @@ class UseapiGoogleFlowGenerateImage:
                 body[f"reference_{i}"] = ref.strip()
 
         logger.info(f"{LOG} Google Flow Image: model={model}, count={count}, prompt='{prompt[:60]}'")
-        headers = _auth_headers(token)
-        pbar = _make_pbar()
-        _pt, _done = (None, None)
-        if pbar is not None:
-            _pt, _done = _start_progress_thread(pbar, 120)
-        try:
-            for _attempt in range(3):
-                status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=120)
-                if status == 403 and _attempt < 2:
-                    try:
-                        _resp = json.loads(raw) if raw else {}
-                        _err = _resp.get("error") if isinstance(_resp.get("error"), dict) else {}
-                        _rmsg = _resp.get("message", "") or _err.get("message", "")
-                        if "reCAPTCHA" in _rmsg or "captcha" in _rmsg.lower():
-                            wait_time = 2 * (2 ** _attempt)
-                            logger.info(f"{LOG} Google Flow Image: reCAPTCHA 403, retrying ({_attempt + 1}/3) in {wait_time}s...")
-                            time.sleep(wait_time)
-                            continue
-                    except Exception:
-                        pass
-                break
-        finally:
-            if _done is not None:
-                _done.set(); _pt.join(timeout=1)
-        data = _check_status(status, raw, url, "Google Flow generate image")
-        if pbar is not None:
-            pbar.update_absolute(100, 100)
+        data = _submit_with_progress(url, body, token, _ESTIMATED_SECS_GOOGLE_FLOW_IMAGE, _TIMEOUT_MED, "Google Flow generate image")
 
         media_list = data.get("media", [])
         if not media_list:
@@ -869,7 +875,7 @@ class UseapiGoogleFlowUploadAsset:
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "image/png"}
 
         logger.info(f"{LOG} Google Flow Upload Asset: uploading for {email_clean}...")
-        status, raw = _make_request(url, "POST", headers, png_bytes, timeout=60)
+        status, raw = _make_request(url, "POST", headers, png_bytes, timeout=_TIMEOUT_SHORT)
         data = _check_status(status, raw, url, "Google Flow upload asset")
 
         # Response: {"mediaGenerationId": {"mediaGenerationId": "user:..."}, ...}
@@ -919,7 +925,7 @@ class UseapiGoogleFlowImageUpscale:
         logger.info(f"{LOG} Google Flow Image Upscale: {resolution}, mediaGenerationId={media_generation_id[:50]}...")
 
         headers = _auth_headers(token)
-        status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=300)
+        status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=_TIMEOUT_LONG)
         data = _check_status(status, raw, url, "Google Flow image upscale")
 
         encoded = data.get("encodedImage", "")
@@ -1040,20 +1046,7 @@ class UseapiRunwayGenerate:
             body["email"] = email.strip()
 
         logger.info(f"{LOG} Runway Generate: model={model}, {seconds}s, prompt='{text_prompt[:60]}'")
-        headers = _auth_headers(token)
-        status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, f"Runway {model} create")
-
-        task_id = data.get("task", {}).get("taskId", "")
-        if not task_id:
-            raise RuntimeError(
-                f"{LOG} Runway create: 'taskId' missing in response. "
-                f"Check your account status and inputs. Response: {data}"
-            )
-        logger.info(f"{LOG} Runway Generate: task created. taskId={task_id[:50]}...")
-
-        pbar = _make_pbar()
-        artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
+        artifacts, task_id = _runway_submit_and_poll(url, body, token, f"Runway {model} create", poll_interval, max_wait)
         video_url = artifacts[0]["url"]
         video_path = _download_file(video_url, ".mp4")
         return (video_url, video_path, task_id)
@@ -1111,19 +1104,7 @@ class UseapiRunwayVideoToVideo:
             body["seed"] = seed
 
         logger.info(f"{LOG} Runway Video-to-Video: model={model}, assetId={video_asset_id[:50]}...")
-        headers = _auth_headers(token)
-        status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, f"Runway {model} video-to-video create")
-
-        task_id = _extract_runway_task_id(data)
-        if not task_id:
-            raise RuntimeError(
-                f"{LOG} Runway video-to-video: 'taskId' missing in response. "
-                f"Response: {data}"
-            )
-
-        pbar = _make_pbar()
-        artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
+        artifacts, task_id = _runway_submit_and_poll(url, body, token, f"Runway {model} video-to-video create", poll_interval, max_wait)
         video_url = artifacts[0]["url"]
         video_path = _download_file(video_url, ".mp4")
         return (video_url, video_path, task_id)
@@ -1201,7 +1182,7 @@ class UseapiRunwayFramesGenerate:
 
         logger.info(f"{LOG} Runway Frames: num_images={num_images}, prompt='{text_prompt[:60]}'")
         headers = _auth_headers(token)
-        status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
+        status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=_TIMEOUT_SHORT)
         data = _check_status(status, raw, url, "Runway Frames create")
 
         task_id = data.get("taskId", "") or data.get("task", {}).get("taskId", "")
@@ -1266,7 +1247,7 @@ class UseapiRunwayImageUpscaler:
         logger.info(f"{LOG} Runway Image Upscaler: {width}x{height} for {image_url[:60]}...")
         headers = {"Authorization": f"Bearer {token}"}
         # NOTE: response is raw binary image, NOT JSON — bypass _check_status
-        status, raw = _make_request(url, "GET", headers, None, timeout=120)
+        status, raw = _make_request(url, "GET", headers, None, timeout=_TIMEOUT_MED)
         if status != 200:
             raise RuntimeError(
                 f"{LOG} Runway Image Upscaler: HTTP {status}. "
@@ -1413,19 +1394,7 @@ class UseapiVeoVideoToGif:
         url = f"{BASE_URL}/google-flow/videos/gif"
         body = {"mediaGenerationId": media_generation_id}
         logger.info(f"{LOG} Veo Video to GIF: mediaGenerationId={media_generation_id[:50]}...")
-        headers = _auth_headers(token)
-        pbar = _make_pbar()
-        _pt, _done = (None, None)
-        if pbar is not None:
-            _pt, _done = _start_progress_thread(pbar, 30)
-        try:
-            status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=300)
-        finally:
-            if _done is not None:
-                _done.set(); _pt.join(timeout=1)
-        data = _check_status(status, raw, url, "Veo video to GIF")
-        if pbar is not None:
-            pbar.update_absolute(100, 100)
+        data = _submit_with_progress(url, body, token, _ESTIMATED_SECS_VEO_GIF, _TIMEOUT_LONG, "Veo video to GIF")
         encoded = data.get("encodedGif", "")
         if not encoded:
             raise RuntimeError(f"{LOG} Veo Video to GIF: no encodedGif in response: {data}")
@@ -1500,19 +1469,7 @@ class UseapiVeoConcatenate:
         url = f"{BASE_URL}/google-flow/videos/concatenate"
         body = {"media": media_list}
         logger.info(f"{LOG} Veo Concatenate: {len(media_list)} videos...")
-        headers = _auth_headers(token)
-        pbar = _make_pbar()
-        _pt, _done = (None, None)
-        if pbar is not None:
-            _pt, _done = _start_progress_thread(pbar, 90)
-        try:
-            status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=600)
-        finally:
-            if _done is not None:
-                _done.set(); _pt.join(timeout=1)
-        data = _check_status(status, raw, url, "Veo concatenate")
-        if pbar is not None:
-            pbar.update_absolute(100, 100)
+        data = _submit_with_progress(url, body, token, _ESTIMATED_SECS_VEO_CONCAT, _TIMEOUT_XLONG, "Veo concatenate")
         encoded = data.get("encodedVideo", "")
         if not encoded:
             raise RuntimeError(f"{LOG} Veo Concatenate: no encodedVideo in response: {data}")
@@ -1585,20 +1542,7 @@ class UseapiRunwayImages:
                 body[f"imageAssetId{i}"] = aid.strip()
 
         logger.info(f"{LOG} Runway Images: model={model}, prompt='{text_prompt[:60]}'")
-        headers = _auth_headers(token)
-        status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, "Runway images create")
-
-        task_id = _extract_runway_task_id(data)
-        if not task_id:
-            raise RuntimeError(
-                f"{LOG} Runway Images: 'taskId' missing in response. "
-                f"Response: {data}"
-            )
-        logger.info(f"{LOG} Runway Images: task created. taskId={task_id[:50]}...")
-
-        pbar = _make_pbar()
-        artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
+        artifacts, task_id = _runway_submit_and_poll(url, body, token, "Runway images create", poll_interval, max_wait)
         all_urls = [a["url"] for a in artifacts if "url" in a]
         if not all_urls:
             raise RuntimeError(f"{LOG} Runway Images: no URLs in artifacts: {artifacts}")
@@ -1646,19 +1590,7 @@ class UseapiRunwayGen4Upscale:
         if email.strip():
             body["email"] = email.strip()
         logger.info(f"{LOG} Runway Gen4 Upscale: assetId={asset_id[:50]}...")
-        headers = _auth_headers(token)
-        status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, "Runway gen4 upscale")
-
-        task_id = _extract_runway_task_id(data)
-        if not task_id:
-            raise RuntimeError(
-                f"{LOG} Runway Gen4 Upscale: 'taskId' missing in response. "
-                f"Response: {data}"
-            )
-
-        pbar = _make_pbar()
-        artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
+        artifacts, task_id = _runway_submit_and_poll(url, body, token, "Runway gen4 upscale", poll_interval, max_wait)
         video_url = artifacts[0]["url"]
         video_path = _download_file(video_url, ".mp4")
         return (video_url, video_path, task_id)
@@ -1720,19 +1652,7 @@ class UseapiRunwayActTwo:
             f"{LOG} Runway Act Two: driving={driving_asset_id[:40]}..., "
             f"character={character_asset_id[:40]}..."
         )
-        headers = _auth_headers(token)
-        status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, "Runway act-two")
-
-        task_id = _extract_runway_task_id(data)
-        if not task_id:
-            raise RuntimeError(
-                f"{LOG} Runway Act Two: 'taskId' missing in response. "
-                f"Response: {data}"
-            )
-
-        pbar = _make_pbar()
-        artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
+        artifacts, task_id = _runway_submit_and_poll(url, body, token, "Runway act-two", poll_interval, max_wait)
         video_url = artifacts[0]["url"]
         video_path = _download_file(video_url, ".mp4")
         return (video_url, video_path, task_id)
@@ -1780,19 +1700,7 @@ class UseapiRunwayActTwoVoice:
         if email.strip():
             body["email"] = email.strip()
         logger.info(f"{LOG} Runway Act Two Voice: video={video_asset_id[:40]}..., voiceId={voice_id}")
-        headers = _auth_headers(token)
-        status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, "Runway act-two-voice")
-
-        task_id = _extract_runway_task_id(data)
-        if not task_id:
-            raise RuntimeError(
-                f"{LOG} Runway Act Two Voice: 'taskId' missing in response. "
-                f"Response: {data}"
-            )
-
-        pbar = _make_pbar()
-        artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
+        artifacts, task_id = _runway_submit_and_poll(url, body, token, "Runway act-two-voice", poll_interval, max_wait)
         video_url = artifacts[0]["url"]
         video_path = _download_file(video_url, ".mp4")
         return (video_url, video_path, task_id)
@@ -1849,19 +1757,7 @@ class UseapiRunwayLipsync:
         if email.strip():
             body["email"] = email.strip()
         logger.info(f"{LOG} Runway Lipsync: model_id={model_id}...")
-        headers = _auth_headers(token)
-        status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, "Runway lipsync")
-
-        task_id = _extract_runway_task_id(data)
-        if not task_id:
-            raise RuntimeError(
-                f"{LOG} Runway Lipsync: 'taskId' missing in response. "
-                f"Response: {data}"
-            )
-
-        pbar = _make_pbar()
-        artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
+        artifacts, task_id = _runway_submit_and_poll(url, body, token, "Runway lipsync", poll_interval, max_wait)
         video_url = artifacts[0]["url"]
         video_path = _download_file(video_url, ".mp4")
         return (video_url, video_path, task_id)
@@ -1902,19 +1798,7 @@ class UseapiRunwaySuperSlowMotion:
         if email.strip():
             body["email"] = email.strip()
         logger.info(f"{LOG} Runway Super Slow Motion: assetId={asset_id[:50]}..., speed={speed}")
-        headers = _auth_headers(token)
-        status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, "Runway super slow motion")
-
-        task_id = _extract_runway_task_id(data)
-        if not task_id:
-            raise RuntimeError(
-                f"{LOG} Runway Super Slow Motion: 'taskId' missing in response. "
-                f"Response: {data}"
-            )
-
-        pbar = _make_pbar()
-        artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
+        artifacts, task_id = _runway_submit_and_poll(url, body, token, "Runway super slow motion", poll_interval, max_wait)
         video_url = artifacts[0]["url"]
         video_path = _download_file(video_url, ".mp4")
         return (video_url, video_path, task_id)
@@ -1948,7 +1832,7 @@ class UseapiRunwayTranscribe:
         url = f"{BASE_URL}/runwayml/transcribe?{urllib.parse.urlencode(params)}"
         logger.info(f"{LOG} Runway Transcribe: assetId={asset_id[:50]}..., language={language}")
         headers = _auth_headers(token)
-        status, raw = _make_request(url, "GET", headers, None, timeout=120)
+        status, raw = _make_request(url, "GET", headers, None, timeout=_TIMEOUT_MED)
         data = _check_status(status, raw, url, "Runway transcribe")
         words = data.get("words", [])
         full_text = " ".join(w.get("text", "") for w in words)
@@ -1999,19 +1883,7 @@ class UseapiRunwayGen3TurboExtend:
         if email.strip():
             body["email"] = email.strip()
         logger.info(f"{LOG} Runway Gen3 Turbo Extend: assetId={asset_id[:50]}...")
-        headers = _auth_headers(token)
-        status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, "Runway gen3turbo extend")
-
-        task_id = _extract_runway_task_id(data)
-        if not task_id:
-            raise RuntimeError(
-                f"{LOG} Runway Gen3 Turbo Extend: 'taskId' missing in response. "
-                f"Response: {data}"
-            )
-
-        pbar = _make_pbar()
-        artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
+        artifacts, task_id = _runway_submit_and_poll(url, body, token, "Runway gen3turbo extend", poll_interval, max_wait)
         video_url = artifacts[0]["url"]
         video_path = _download_file(video_url, ".mp4")
         return (video_url, video_path, task_id)
