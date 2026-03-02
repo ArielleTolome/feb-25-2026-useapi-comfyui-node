@@ -89,6 +89,26 @@ def _get_sorted_list(original_list: list, default_val: str) -> list:
 
 # ── Shared Utilities ─────────────────────────────────────────────────────────
 
+def _safe_url(url: str) -> str:
+    """Strip query parameters from a URL for safe logging/display."""
+    if not url:
+        return url
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
+    except Exception:
+        return url
+
+
+def _redact_token(text: str, token: str) -> str:
+    """Redact the API token from text if present."""
+    if not text or not token:
+        return text
+    if not isinstance(text, str):
+        text = str(text)
+    return text.replace(token, "[REDACTED]")
+
+
 def _is_safe_path(path: str) -> bool:
     """Validate path safety to prevent traversal and SSRF.
 
@@ -211,32 +231,38 @@ _DEFAULT_HEADERS = {
 
 
 def _make_request(url: str, method: str = "GET", headers: dict = None,
-                  data: bytes = None, timeout: int = None):
-    """Make an HTTP request. Returns (status_code, response_body_bytes)."""
+                  data: bytes = None, timeout: int = None, retries: int = 1):
+    """Make an HTTP request with retry logic for stale connections. Returns (status_code, response_body_bytes)."""
     _validate_url(url)
     if timeout is None:
         timeout = _get_config_value("global", "default_timeout", 600)
     merged = {**_DEFAULT_HEADERS, **(headers or {})}
     req = urllib.request.Request(url, data=data, headers=merged, method=method)
     opener = urllib.request.build_opener(_SafeRedirectHandler())
-    try:
-        with opener.open(req, timeout=timeout) as resp:
-            return resp.status, resp.read()
-    except urllib.error.HTTPError as e:
-        return e.code, e.read()
-    except urllib.error.URLError as e:
-        raise RuntimeError(
-            f"{LOG} Network error reaching {url}. "
-            f"Please check your internet connection. Detail: {e.reason}"
-        )
-    except TimeoutError:
-        raise RuntimeError(
-            f"{LOG} Request timed out after {timeout}s while connecting to {url}. "
-            "Try increasing 'default_timeout' in nodes_config.json."
-        )
+
+    for attempt in range(retries + 1):
+        try:
+            with opener.open(req, timeout=timeout) as resp:
+                return resp.status, resp.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read()
+        except urllib.error.URLError as e:
+            if attempt < retries and isinstance(e.reason, (ConnectionResetError, BrokenPipeError)) or (isinstance(e.reason, OSError) and "RemoteDisconnected" in str(e.reason)):
+                continue
+            raise RuntimeError(
+                f"{LOG} Network error reaching {_safe_url(url)}. "
+                f"Please check your internet connection. Detail: {e.reason}"
+            )
+        except TimeoutError:
+            raise RuntimeError(
+                f"{LOG} Request timed out after {timeout}s while connecting to {_safe_url(url)}. "
+                "Try increasing 'default_timeout' in nodes_config.json."
+            )
+
+    raise RuntimeError(f"{LOG} Failed to reach {_safe_url(url)} after {retries + 1} attempts.")
 
 
-def _check_status(status: int, body: bytes, url: str, context: str = "") -> dict:
+def _check_status(status: int, body: bytes, url: str, context: str = "", token: str = "") -> dict:
     """Parse JSON response body; raise descriptive error if status != 200."""
     try:
         data = json.loads(body) if body else {}
@@ -245,18 +271,22 @@ def _check_status(status: int, body: bytes, url: str, context: str = "") -> dict
     if status == 200:
         return data
 
-    detail = data.get("error", body[:300].decode(errors="replace"))
+    detail_raw = data.get("error", body[:300].decode(errors="replace"))
+    detail_str = detail_raw if isinstance(detail_raw, str) else json.dumps(detail_raw)
+    detail = _redact_token(detail_str, token)
+
     label = f"{LOG} [{context}]" if context else LOG
+    safe_url = _safe_url(url)
 
     if status == 400:
         raise RuntimeError(
             f"{label} Bad Request (400). Please check your input parameters "
-            f"(prompts, models, aspect ratios). URL: {url}\nDetail: {detail}"
+            f"(prompts, models, aspect ratios). URL: {safe_url}\nDetail: {detail}"
         )
     if status == 401:
         raise RuntimeError(
             f"{label} Unauthorized (401). Your API token is invalid or expired. "
-            f"Please verify it has no extra whitespace/newlines. URL: {url}"
+            f"Please verify it has no extra whitespace/newlines. URL: {safe_url}"
         )
     if status == 403:
         _err_obj = data.get("error") if isinstance(data.get("error"), dict) else {}
@@ -265,42 +295,42 @@ def _check_status(status: int, body: bytes, url: str, context: str = "") -> dict
         if "reCAPTCHA" in (msg + raw_text) or "captcha" in (msg + raw_text).lower():
             raise RuntimeError(
                 f"{label} Transient reCAPTCHA error (403). This is an intermittent Google-side "
-                f"limit. Retry in a few seconds. URL: {url}\nDetail: {detail}"
+                f"limit. Retry in a few seconds. URL: {safe_url}\nDetail: {detail}"
             )
         if detail == "API error: 403":
             raise RuntimeError(
                 f"{label} Google returned 403 to Useapi.net (\"API error: 403\"). "
-                "This is usually a transient Google-side block — retry in a few seconds. "
+                "This is usually a transient Google-side block \u2014 retry in a few seconds. "
                 "If it persists, verify that your Google/service account has access to this "
-                f"model at useapi.net. URL: {url}\nRaw response: {raw_text[:300]}"
+                f"model at useapi.net. URL: {safe_url}\nRaw response: {_redact_token(raw_text[:300], token)}"
             )
         raise RuntimeError(
             f"{label} Forbidden (403). The Google/service account linked to your "
             "Useapi.net token may not have access to this API or model. "
-            f"Verify your account settings at useapi.net. URL: {url}\nDetail: {detail}"
+            f"Verify your account settings at useapi.net. URL: {safe_url}\nDetail: {detail}"
         )
     if status == 404:
         raise RuntimeError(
             f"{label} Not Found (404). The requested resource or endpoint was not found. "
-            f"URL: {url}\nDetail: {detail}"
+            f"URL: {safe_url}\nDetail: {detail}"
         )
     if status == 408:
         raise RuntimeError(
             f"{label} Request Timeout (408). The generation took too long. "
-            f"Try increasing the timeout in nodes_config.json. URL: {url}\nDetail: {detail}"
+            f"Try increasing the timeout in nodes_config.json. URL: {safe_url}\nDetail: {detail}"
         )
     if status == 429:
         raise RuntimeError(
             f"{label} Rate Limited (429). You are sending too many requests. "
-            f"Wait 5-10s or add more Useapi.net accounts. URL: {url}\nDetail: {detail}"
+            f"Wait 5-10s or add more Useapi.net accounts. URL: {safe_url}\nDetail: {detail}"
         )
     if status in (500, 502, 503, 504):
         raise RuntimeError(
             f"{label} Server Error ({status}). The service is temporarily unavailable. "
-            f"Please retry in a moment. URL: {url}\nDetail: {detail}"
+            f"Please retry in a moment. URL: {safe_url}\nDetail: {detail}"
         )
 
-    raise RuntimeError(f"{label} HTTP {status} from {url}.\nDetail: {detail}")
+    raise RuntimeError(f"{label} HTTP {status} from {safe_url}.\nDetail: {detail}")
 
 
 def _tensor_to_png_bytes(tensor: torch.Tensor) -> bytes:
@@ -378,7 +408,7 @@ def _runway_poll(task_id: str, token: str,
         if status in [500, 502, 503, 504, 520, 522, 524]:
             logger.info(f"{LOG} Runway poll transient error {status}. Retrying...")
             continue
-        data = _check_status(status, raw, poll_url, f"Runway poll {task_id[:30]}")
+        data = _check_status(status, raw, poll_url, f"Runway poll {task_id[:30]}", token=token)
         task_status = data.get("status", "")
         logger.info(f"{LOG} Runway task {task_id[:30]}... → {task_status}")
 
@@ -394,7 +424,7 @@ def _runway_poll(task_id: str, token: str,
             artifacts = data.get("artifacts", [])
             if not artifacts:
                 raise RuntimeError(
-                    f"{LOG} Runway task SUCCEEDED but no artifacts in response: {data}"
+                    f"{LOG} Runway task SUCCEEDED but no artifacts in response: {_redact_token(json.dumps(data), token)}"
                 )
             return artifacts
         if task_status == "THROTTLED":
@@ -430,10 +460,10 @@ def _runway_upload_image(token: str, image_tensor: torch.Tensor,
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "image/png"}
     logger.info(f"{LOG} Runway: uploading image asset...")
     status, raw = _make_request(url, "POST", headers, png_bytes, timeout=60)
-    data = _check_status(status, raw, url, "Runway upload asset")
+    data = _check_status(status, raw, url, "Runway upload asset", token=token)
     asset_id = data.get("assetId", "") or data.get("id", "")
     if not asset_id:
-        raise RuntimeError(f"{LOG} Runway upload: no assetId in response: {data}")
+        raise RuntimeError(f"{LOG} Runway upload: no assetId in response: {_redact_token(json.dumps(data), token)}")
     logger.info(f"{LOG} Runway asset uploaded: {asset_id[:50]}...")
     return asset_id
 
@@ -578,24 +608,24 @@ class UseapiVeoGenerate:
         finally:
             if _done is not None:
                 _done.set(); _pt.join(timeout=1)
-        data = _check_status(status, raw, url, "Veo generate")
+        data = _check_status(status, raw, url, "Veo generate", token=token)
         if pbar is not None:
             pbar.update_absolute(100, 100)
 
         ops = data.get("operations", [])
         if not ops:
-            raise RuntimeError(f"{LOG} Veo generate returned no operations: {data}")
+            raise RuntimeError(f"{LOG} Veo generate returned no operations: {_redact_token(json.dumps(data), token)}")
         op = ops[0]
         op_status = op.get("status", "")
         if "FAIL" in op_status.upper():
-            raise RuntimeError(f"{LOG} Veo generation failed. Status={op_status}. op={op}")
+            raise RuntimeError(f"{LOG} Veo generation failed. Status={op_status}. op={_redact_token(json.dumps(op), token)}")
         video_meta = op.get("operation", {}).get("metadata", {}).get("video", {})
         video_url = video_meta.get("fifeUrl", "")
         media_gen_id = video_meta.get("mediaGenerationId", "")
         if not video_url:
             raise RuntimeError(
                 f"{LOG} Veo generate: 'fifeUrl' missing in response. "
-                f"The API might have changed. Detail: {video_meta}"
+                f"The API might have changed. Detail: {_redact_token(json.dumps(video_meta), token)}"
             )
 
         logger.info(f"{LOG} Veo Generate: complete. mediaGenerationId={media_gen_id[:50]}...")
@@ -640,13 +670,13 @@ class UseapiVeoUpscale:
         finally:
             if _done is not None:
                 _done.set(); _pt.join(timeout=1)
-        data = _check_status(status, raw, url, "Veo upscale")
+        data = _check_status(status, raw, url, "Veo upscale", token=token)
         if pbar is not None:
             pbar.update_absolute(100, 100)
 
         ops = data.get("operations", [])
         if not ops:
-            raise RuntimeError(f"{LOG} Veo upscale returned no operations: {data}")
+            raise RuntimeError(f"{LOG} Veo upscale returned no operations: {_redact_token(json.dumps(data), token)}")
         video_meta = ops[0].get("operation", {}).get("metadata", {}).get("video", {})
         video_url = video_meta.get("fifeUrl", "")
         if not video_url:
@@ -699,13 +729,13 @@ class UseapiVeoExtend:
         finally:
             if _done is not None:
                 _done.set(); _pt.join(timeout=1)
-        data = _check_status(status, raw, url, "Veo extend")
+        data = _check_status(status, raw, url, "Veo extend", token=token)
         if pbar is not None:
             pbar.update_absolute(100, 100)
 
         ops = data.get("operations", [])
         if not ops:
-            raise RuntimeError(f"{LOG} Veo extend returned no operations: {data}")
+            raise RuntimeError(f"{LOG} Veo extend returned no operations: {_redact_token(json.dumps(data), token)}")
         video_meta = ops[0].get("operation", {}).get("metadata", {}).get("video", {})
         video_url = video_meta.get("fifeUrl", "")
         media_gen_id = video_meta.get("mediaGenerationId", "")
@@ -800,13 +830,13 @@ class UseapiGoogleFlowGenerateImage:
         finally:
             if _done is not None:
                 _done.set(); _pt.join(timeout=1)
-        data = _check_status(status, raw, url, "Google Flow generate image")
+        data = _check_status(status, raw, url, "Google Flow generate image", token=token)
         if pbar is not None:
             pbar.update_absolute(100, 100)
 
         media_list = data.get("media", [])
         if not media_list:
-            raise RuntimeError(f"{LOG} Google Flow image: no media in response: {data}")
+            raise RuntimeError(f"{LOG} Google Flow image: no media in response: {_redact_token(json.dumps(data), token)}")
 
         urls = []
         first_media_gen_id = ""
@@ -819,7 +849,7 @@ class UseapiGoogleFlowGenerateImage:
                 first_media_gen_id = gen_img.get("mediaGenerationId", "")
 
         if not urls:
-            raise RuntimeError(f"{LOG} Google Flow image: no fifeUrls found in response: {data}")
+            raise RuntimeError(f"{LOG} Google Flow image: no fifeUrls found in response: {_redact_token(json.dumps(data), token)}")
 
         logger.info(f"{LOG} Google Flow Image: {len(urls)} image(s). mediaGenerationId={first_media_gen_id[:50]}...")
 
@@ -870,7 +900,7 @@ class UseapiGoogleFlowUploadAsset:
 
         logger.info(f"{LOG} Google Flow Upload Asset: uploading for {email_clean}...")
         status, raw = _make_request(url, "POST", headers, png_bytes, timeout=60)
-        data = _check_status(status, raw, url, "Google Flow upload asset")
+        data = _check_status(status, raw, url, "Google Flow upload asset", token=token)
 
         # Response: {"mediaGenerationId": {"mediaGenerationId": "user:..."}, ...}
         nested = data.get("mediaGenerationId", "")
@@ -880,7 +910,7 @@ class UseapiGoogleFlowUploadAsset:
             media_gen_id = nested
         if not media_gen_id:
             raise RuntimeError(
-                f"{LOG} Google Flow Upload Asset: no mediaGenerationId in response: {data}"
+                f"{LOG} Google Flow Upload Asset: no mediaGenerationId in response: {_redact_token(json.dumps(data), token)}"
             )
         logger.info(f"{LOG} Google Flow Upload Asset: mediaGenerationId={media_gen_id[:50]}...")
         return (media_gen_id,)
@@ -920,7 +950,7 @@ class UseapiGoogleFlowImageUpscale:
 
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=300)
-        data = _check_status(status, raw, url, "Google Flow image upscale")
+        data = _check_status(status, raw, url, "Google Flow image upscale", token=token)
 
         encoded = data.get("encodedImage", "")
         if not encoded:
@@ -1042,13 +1072,13 @@ class UseapiRunwayGenerate:
         logger.info(f"{LOG} Runway Generate: model={model}, {seconds}s, prompt='{text_prompt[:60]}'")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, f"Runway {model} create")
+        data = _check_status(status, raw, url, f"Runway {model} create", token=token)
 
         task_id = data.get("task", {}).get("taskId", "")
         if not task_id:
             raise RuntimeError(
                 f"{LOG} Runway create: 'taskId' missing in response. "
-                f"Check your account status and inputs. Response: {data}"
+                f"Check your account status and inputs. Response: {_redact_token(json.dumps(data), token)}"
             )
         logger.info(f"{LOG} Runway Generate: task created. taskId={task_id[:50]}...")
 
@@ -1113,13 +1143,13 @@ class UseapiRunwayVideoToVideo:
         logger.info(f"{LOG} Runway Video-to-Video: model={model}, assetId={video_asset_id[:50]}...")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, f"Runway {model} video-to-video create")
+        data = _check_status(status, raw, url, f"Runway {model} video-to-video create", token=token)
 
         task_id = _extract_runway_task_id(data)
         if not task_id:
             raise RuntimeError(
                 f"{LOG} Runway video-to-video: 'taskId' missing in response. "
-                f"Response: {data}"
+                f"Response: {_redact_token(json.dumps(data), token)}"
             )
 
         pbar = _make_pbar()
@@ -1202,13 +1232,13 @@ class UseapiRunwayFramesGenerate:
         logger.info(f"{LOG} Runway Frames: num_images={num_images}, prompt='{text_prompt[:60]}'")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, "Runway Frames create")
+        data = _check_status(status, raw, url, "Runway Frames create", token=token)
 
         task_id = data.get("taskId", "") or data.get("task", {}).get("taskId", "")
         if not task_id:
             raise RuntimeError(
                 f"{LOG} Runway Frames: 'taskId' missing in response. "
-                f"Response: {data}"
+                f"Response: {_redact_token(json.dumps(data), token)}"
             )
         logger.info(f"{LOG} Runway Frames: task created. taskId={task_id[:50]}...")
 
@@ -1216,7 +1246,7 @@ class UseapiRunwayFramesGenerate:
         artifacts = _runway_frames_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
         all_urls = [a["url"] for a in artifacts if a.get("mediaType") == "image" or "url" in a]
         if not all_urls:
-            raise RuntimeError(f"{LOG} Runway Frames: no image URLs in artifacts: {artifacts}")
+            raise RuntimeError(f"{LOG} Runway Frames: no image URLs in artifacts: {_redact_token(json.dumps(artifacts), token)}")
 
         first_url = all_urls[0]
         s2, img_bytes = _make_request(first_url, "GET", {}, None, 60)
@@ -1269,8 +1299,8 @@ class UseapiRunwayImageUpscaler:
         status, raw = _make_request(url, "GET", headers, None, timeout=120)
         if status != 200:
             raise RuntimeError(
-                f"{LOG} Runway Image Upscaler: HTTP {status}. "
-                f"Response: {raw[:200].decode(errors='replace')}"
+                f"{LOG} Runway Image Upscaler: HTTP {status} from {_safe_url(url)}. "
+                f"Response: {_redact_token(raw[:200].decode(errors='replace'), token)}"
             )
         tensor = _bytes_to_tensor(raw)
         logger.info(f"{LOG} Runway Image Upscaler: complete. Shape={tensor.shape}")
@@ -1423,12 +1453,12 @@ class UseapiVeoVideoToGif:
         finally:
             if _done is not None:
                 _done.set(); _pt.join(timeout=1)
-        data = _check_status(status, raw, url, "Veo video to GIF")
+        data = _check_status(status, raw, url, "Veo video to GIF", token=token)
         if pbar is not None:
             pbar.update_absolute(100, 100)
         encoded = data.get("encodedGif", "")
         if not encoded:
-            raise RuntimeError(f"{LOG} Veo Video to GIF: no encodedGif in response: {data}")
+            raise RuntimeError(f"{LOG} Veo Video to GIF: no encodedGif in response: {_redact_token(json.dumps(data), token)}")
         gif_bytes = base64.b64decode(encoded)
         gif_path = _save_bytes_to_cache(gif_bytes, ".gif")
         logger.info(f"{LOG} Veo Video to GIF: complete. Path={gif_path}")
@@ -1510,12 +1540,12 @@ class UseapiVeoConcatenate:
         finally:
             if _done is not None:
                 _done.set(); _pt.join(timeout=1)
-        data = _check_status(status, raw, url, "Veo concatenate")
+        data = _check_status(status, raw, url, "Veo concatenate", token=token)
         if pbar is not None:
             pbar.update_absolute(100, 100)
         encoded = data.get("encodedVideo", "")
         if not encoded:
-            raise RuntimeError(f"{LOG} Veo Concatenate: no encodedVideo in response: {data}")
+            raise RuntimeError(f"{LOG} Veo Concatenate: no encodedVideo in response: {_redact_token(json.dumps(data), token)}")
         video_bytes = base64.b64decode(encoded)
         video_path = _save_bytes_to_cache(video_bytes, ".mp4")
         logger.info(f"{LOG} Veo Concatenate: complete. Path={video_path}")
@@ -1587,13 +1617,13 @@ class UseapiRunwayImages:
         logger.info(f"{LOG} Runway Images: model={model}, prompt='{text_prompt[:60]}'")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, "Runway images create")
+        data = _check_status(status, raw, url, "Runway images create", token=token)
 
         task_id = _extract_runway_task_id(data)
         if not task_id:
             raise RuntimeError(
                 f"{LOG} Runway Images: 'taskId' missing in response. "
-                f"Response: {data}"
+                f"Response: {_redact_token(json.dumps(data), token)}"
             )
         logger.info(f"{LOG} Runway Images: task created. taskId={task_id[:50]}...")
 
@@ -1601,7 +1631,7 @@ class UseapiRunwayImages:
         artifacts = _runway_poll(task_id, token, poll_interval, max_wait, pbar=pbar)
         all_urls = [a["url"] for a in artifacts if "url" in a]
         if not all_urls:
-            raise RuntimeError(f"{LOG} Runway Images: no URLs in artifacts: {artifacts}")
+            raise RuntimeError(f"{LOG} Runway Images: no URLs in artifacts: {_redact_token(json.dumps(artifacts), token)}")
 
         first_url = all_urls[0]
         s2, img_bytes = _make_request(first_url, "GET", {}, None, 60)
@@ -1648,13 +1678,13 @@ class UseapiRunwayGen4Upscale:
         logger.info(f"{LOG} Runway Gen4 Upscale: assetId={asset_id[:50]}...")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, "Runway gen4 upscale")
+        data = _check_status(status, raw, url, "Runway gen4 upscale", token=token)
 
         task_id = _extract_runway_task_id(data)
         if not task_id:
             raise RuntimeError(
                 f"{LOG} Runway Gen4 Upscale: 'taskId' missing in response. "
-                f"Response: {data}"
+                f"Response: {_redact_token(json.dumps(data), token)}"
             )
 
         pbar = _make_pbar()
@@ -1722,13 +1752,13 @@ class UseapiRunwayActTwo:
         )
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, "Runway act-two")
+        data = _check_status(status, raw, url, "Runway act-two", token=token)
 
         task_id = _extract_runway_task_id(data)
         if not task_id:
             raise RuntimeError(
                 f"{LOG} Runway Act Two: 'taskId' missing in response. "
-                f"Response: {data}"
+                f"Response: {_redact_token(json.dumps(data), token)}"
             )
 
         pbar = _make_pbar()
@@ -1782,13 +1812,13 @@ class UseapiRunwayActTwoVoice:
         logger.info(f"{LOG} Runway Act Two Voice: video={video_asset_id[:40]}..., voiceId={voice_id}")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, "Runway act-two-voice")
+        data = _check_status(status, raw, url, "Runway act-two-voice", token=token)
 
         task_id = _extract_runway_task_id(data)
         if not task_id:
             raise RuntimeError(
                 f"{LOG} Runway Act Two Voice: 'taskId' missing in response. "
-                f"Response: {data}"
+                f"Response: {_redact_token(json.dumps(data), token)}"
             )
 
         pbar = _make_pbar()
@@ -1851,13 +1881,13 @@ class UseapiRunwayLipsync:
         logger.info(f"{LOG} Runway Lipsync: model_id={model_id}...")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, "Runway lipsync")
+        data = _check_status(status, raw, url, "Runway lipsync", token=token)
 
         task_id = _extract_runway_task_id(data)
         if not task_id:
             raise RuntimeError(
                 f"{LOG} Runway Lipsync: 'taskId' missing in response. "
-                f"Response: {data}"
+                f"Response: {_redact_token(json.dumps(data), token)}"
             )
 
         pbar = _make_pbar()
@@ -1904,13 +1934,13 @@ class UseapiRunwaySuperSlowMotion:
         logger.info(f"{LOG} Runway Super Slow Motion: assetId={asset_id[:50]}..., speed={speed}")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, "Runway super slow motion")
+        data = _check_status(status, raw, url, "Runway super slow motion", token=token)
 
         task_id = _extract_runway_task_id(data)
         if not task_id:
             raise RuntimeError(
                 f"{LOG} Runway Super Slow Motion: 'taskId' missing in response. "
-                f"Response: {data}"
+                f"Response: {_redact_token(json.dumps(data), token)}"
             )
 
         pbar = _make_pbar()
@@ -1949,7 +1979,7 @@ class UseapiRunwayTranscribe:
         logger.info(f"{LOG} Runway Transcribe: assetId={asset_id[:50]}..., language={language}")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "GET", headers, None, timeout=120)
-        data = _check_status(status, raw, url, "Runway transcribe")
+        data = _check_status(status, raw, url, "Runway transcribe", token=token)
         words = data.get("words", [])
         full_text = " ".join(w.get("text", "") for w in words)
         words_json = json.dumps(words)
@@ -2001,13 +2031,13 @@ class UseapiRunwayGen3TurboExtend:
         logger.info(f"{LOG} Runway Gen3 Turbo Extend: assetId={asset_id[:50]}...")
         headers = _auth_headers(token)
         status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, "Runway gen3turbo extend")
+        data = _check_status(status, raw, url, "Runway gen3turbo extend", token=token)
 
         task_id = _extract_runway_task_id(data)
         if not task_id:
             raise RuntimeError(
                 f"{LOG} Runway Gen3 Turbo Extend: 'taskId' missing in response. "
-                f"Response: {data}"
+                f"Response: {_redact_token(json.dumps(data), token)}"
             )
 
         pbar = _make_pbar()

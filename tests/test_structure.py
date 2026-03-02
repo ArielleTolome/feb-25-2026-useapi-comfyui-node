@@ -25,7 +25,7 @@ except ImportError:
     from unittest.mock import MagicMock
     sys.modules["cv2"] = MagicMock()
 
-from useapi_nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS, _get_token, _extract_runway_task_id
+from useapi_nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS, _get_token, _extract_runway_task_id, _safe_url, _redact_token
 
 EXPECTED_NODES = [
     "UseapiTokenFromEnv",
@@ -157,6 +157,41 @@ class TestRunwayTaskIdExtraction(unittest.TestCase):
         self.assertEqual(_extract_runway_task_id({}), "")
         self.assertEqual(_extract_runway_task_id({"other": "value"}), "")
         self.assertEqual(_extract_runway_task_id({"task": {}}), "")
+
+
+class TestSafeUrl(unittest.TestCase):
+    def test_strips_query_parameters(self):
+        self.assertEqual(_safe_url("https://example.com/api?token=secret&id=123"), "https://example.com/api")
+        self.assertEqual(_safe_url("http://test.org/?a=1"), "http://test.org/")
+
+    def test_handles_no_query_parameters(self):
+        self.assertEqual(_safe_url("https://example.com/api"), "https://example.com/api")
+        self.assertEqual(_safe_url("http://test.org"), "http://test.org")
+
+    def test_handles_empty_or_invalid_url(self):
+        self.assertEqual(_safe_url(""), "")
+        self.assertEqual(_safe_url(None), None)
+        # Should return original if parsing fails (though urlsplit is very forgiving)
+        self.assertEqual(_safe_url("invalid_url"), "invalid_url")
+
+
+class TestRedactToken(unittest.TestCase):
+    def test_redacts_token_from_string(self):
+        self.assertEqual(_redact_token("Error: invalid token 'my_secret_token'", "my_secret_token"), "Error: invalid token '[REDACTED]'")
+
+    def test_handles_multiple_occurrences(self):
+        self.assertEqual(_redact_token("my_secret_token is a bad my_secret_token", "my_secret_token"), "[REDACTED] is a bad [REDACTED]")
+
+    def test_handles_token_not_in_string(self):
+        self.assertEqual(_redact_token("Error: something else", "my_secret_token"), "Error: something else")
+
+    def test_handles_empty_inputs(self):
+        self.assertEqual(_redact_token("", "my_secret_token"), "")
+        self.assertEqual(_redact_token("text", ""), "text")
+        self.assertEqual(_redact_token(None, "my_secret_token"), None)
+
+    def test_handles_non_string_text(self):
+        self.assertEqual(_redact_token({"error": "my_secret_token"}, "my_secret_token"), "{'error': '[REDACTED]'}")
 
 
 if __name__ == "__main__":
