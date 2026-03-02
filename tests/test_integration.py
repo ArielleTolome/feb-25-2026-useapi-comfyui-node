@@ -50,7 +50,8 @@ class TestGoogleFlowGenerateImage(unittest.TestCase):
         urls = json.loads(all_urls)
         self.assertIsInstance(urls, list)
         self.assertGreater(len(urls), 0)
-        print(f"  ✓ Imagen 4 generation: mediaGenerationId={media_gen_id[:40]}...")
+        print("  ✓ Imagen 4 generation: "
+              f"mediaGenerationId={media_gen_id[:40]}...")
 
 
 @unittest.skipIf(SKIP, SKIP_REASON)
@@ -59,7 +60,8 @@ class TestRunwayFramesGenerate(unittest.TestCase):
         from useapi_nodes import UseapiRunwayFramesGenerate
         node = UseapiRunwayFramesGenerate()
         result = node.execute(
-            text_prompt="A simple red cube on a white background, minimal, clean",
+            text_prompt="A simple red cube on a white background, "
+                        "minimal, clean",
             api_token=TOKEN,
             aspect_ratio="16:9",
             num_images="1",
@@ -91,10 +93,12 @@ class TestVeoGenerate(unittest.TestCase):
         self.assertTrue(os.path.exists(video_path))
         self.assertGreater(os.path.getsize(video_path), 0)
         self.assertTrue(bool(media_gen_id))
-        print(f"  ✓ Veo 3.1 generation: {video_path}, mediaGenerationId={media_gen_id[:40]}...")
+        print(f"  ✓ Veo 3.1 generation: {video_path}, "
+              f"mediaGenerationId={media_gen_id[:40]}...")
 
 
 if __name__ == "__main__":
     print("Running integration tests...\n")
-    print(f"Token: {TOKEN[:10]}..." if TOKEN else "No token set — all tests will be skipped")
+    print(f"Token: {TOKEN[:10]}..." if TOKEN else
+          "No token set — all tests will be skipped")
     unittest.main(verbosity=2)

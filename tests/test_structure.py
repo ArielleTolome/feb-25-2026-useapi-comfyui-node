@@ -9,9 +9,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 # Mock heavy deps if not in ComfyUI env
 try:
-    import torch
-    import numpy as np
-    from PIL import Image
+    import torch  # noqa: F401
+    import numpy as np  # noqa: F401
+    from PIL import Image  # noqa: F401
 except ImportError:
     from unittest.mock import MagicMock
     torch = MagicMock()
@@ -20,12 +20,17 @@ except ImportError:
     sys.modules["numpy"] = np
 
 try:
-    import cv2
+    import cv2  # noqa: F401
 except ImportError:
     from unittest.mock import MagicMock
     sys.modules["cv2"] = MagicMock()
 
-from useapi_nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS, _get_token, _extract_runway_task_id
+from useapi_nodes import (  # noqa: E402
+    NODE_CLASS_MAPPINGS,
+    NODE_DISPLAY_NAME_MAPPINGS,
+    _get_token,
+    _extract_runway_task_id
+)
 
 EXPECTED_NODES = [
     "UseapiTokenFromEnv",
@@ -48,11 +53,13 @@ EXPECTED_NODES = [
 class TestRegistrationMaps(unittest.TestCase):
     def test_all_nodes_in_class_mappings(self):
         for name in EXPECTED_NODES:
-            self.assertIn(name, NODE_CLASS_MAPPINGS, f"{name} missing from NODE_CLASS_MAPPINGS")
+            self.assertIn(name, NODE_CLASS_MAPPINGS,
+                          f"{name} missing from NODE_CLASS_MAPPINGS")
 
     def test_all_nodes_in_display_name_mappings(self):
         for name in EXPECTED_NODES:
-            self.assertIn(name, NODE_DISPLAY_NAME_MAPPINGS, f"{name} missing from NODE_DISPLAY_NAME_MAPPINGS")
+            self.assertIn(name, NODE_DISPLAY_NAME_MAPPINGS,
+                          f"{name} missing from NODE_DISPLAY_NAME_MAPPINGS")
 
     def test_class_mapping_values_are_classes(self):
         for name, cls in NODE_CLASS_MAPPINGS.items():
@@ -64,11 +71,15 @@ class TestComfyUIContract(unittest.TestCase):
         cls = NODE_CLASS_MAPPINGS[name]
         self.assertTrue(hasattr(cls, "CATEGORY"), f"{name} missing CATEGORY")
         self.assertTrue(hasattr(cls, "FUNCTION"), f"{name} missing FUNCTION")
-        self.assertTrue(hasattr(cls, "RETURN_TYPES"), f"{name} missing RETURN_TYPES")
-        self.assertTrue(hasattr(cls, "RETURN_NAMES"), f"{name} missing RETURN_NAMES")
+        self.assertTrue(hasattr(cls, "RETURN_TYPES"),
+                        f"{name} missing RETURN_TYPES")
+        self.assertTrue(hasattr(cls, "RETURN_NAMES"),
+                        f"{name} missing RETURN_NAMES")
         func_name = cls.FUNCTION
-        self.assertTrue(hasattr(cls, func_name), f"{name}.FUNCTION='{func_name}' but method not found")
-        self.assertTrue(hasattr(cls, "INPUT_TYPES"), f"{name} missing INPUT_TYPES")
+        self.assertTrue(hasattr(cls, func_name),
+                        f"{name}.FUNCTION='{func_name}' but method not found")
+        self.assertTrue(hasattr(cls, "INPUT_TYPES"),
+                        f"{name} missing INPUT_TYPES")
         input_types = cls.INPUT_TYPES()
         self.assertIsInstance(input_types, dict)
         self.assertTrue("required" in input_types or "optional" in input_types)
@@ -86,15 +97,19 @@ class TestComfyUIContract(unittest.TestCase):
 
 
 class TestCategories(unittest.TestCase):
-    UTILS = ["UseapiTokenFromEnv", "UseapiLoadVideoFrame", "UseapiPreviewVideo"]
+    UTILS = [
+        "UseapiTokenFromEnv", "UseapiLoadVideoFrame", "UseapiPreviewVideo"
+    ]
     GOOGLE_FLOW = [
         "UseapiVeoGenerate", "UseapiVeoUpscale", "UseapiVeoExtend",
-        "UseapiGoogleFlowGenerateImage", "UseapiGoogleFlowUploadAsset",
+        "UseapiGoogleFlowGenerateImage",
+        "UseapiGoogleFlowUploadAsset",
         "UseapiGoogleFlowImageUpscale",
     ]
     RUNWAY = [
-        "UseapiRunwayUploadAsset", "UseapiRunwayGenerate", "UseapiRunwayVideoToVideo",
-        "UseapiRunwayFramesGenerate", "UseapiRunwayImageUpscaler",
+        "UseapiRunwayUploadAsset", "UseapiRunwayGenerate",
+        "UseapiRunwayVideoToVideo", "UseapiRunwayFramesGenerate",
+        "UseapiRunwayImageUpscaler",
     ]
 
     def _check_category(self, names, expected_cat):
@@ -102,7 +117,8 @@ class TestCategories(unittest.TestCase):
             if name not in NODE_CLASS_MAPPINGS:
                 continue
             with self.subTest(node=name):
-                self.assertEqual(NODE_CLASS_MAPPINGS[name].CATEGORY, expected_cat)
+                self.assertEqual(NODE_CLASS_MAPPINGS[name].CATEGORY,
+                                 expected_cat)
 
     def test_utils_category(self):
         self._check_category(self.UTILS, "Useapi.net/Utils")
