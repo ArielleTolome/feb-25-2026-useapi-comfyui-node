@@ -25,6 +25,7 @@ except ImportError:
     cv2 = MagicMock()
     sys.modules["cv2"] = cv2
 
+import useapi_nodes
 from useapi_nodes import UseapiVideoToFrames
 
 
@@ -106,6 +107,112 @@ class TestUseapiVideoToFramesExecute(unittest.TestCase):
         node = UseapiVideoToFrames()
         with self.assertRaises(RuntimeError):
             node.execute(video_path="/fake/video.mp4", start_frame=99999)
+
+
+@unittest.skipIf(not useapi_nodes._CV2_AVAILABLE or isinstance(cv2, MagicMock), "OpenCV required for integration tests")
+class TestUseapiVideoToFramesIntegration(unittest.TestCase):
+    """Integration tests for UseapiVideoToFrames with a real video file."""
+
+    @classmethod
+    def setUpClass(cls):
+        import tempfile
+        import numpy as np
+
+        if not useapi_nodes._CV2_AVAILABLE or isinstance(cv2, MagicMock):
+            return
+
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        cls.video_path = os.path.join(cls.temp_dir.name, "test_video.mp4")
+
+        # Create a simple 5-frame video
+        cls.width = 64
+        cls.height = 64
+        cls.fps = 10.0
+        cls.num_frames = 5
+
+        # Use 'mp4v' or 'XVID' codec depending on platform
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(cls.video_path, fourcc, cls.fps, (cls.width, cls.height))
+
+        # Write 5 frames of different shades of gray
+        for i in range(cls.num_frames):
+            frame = np.zeros((cls.height, cls.width, 3), dtype=np.uint8)
+            val = int((i + 1) * 255 / cls.num_frames)
+            frame[:] = (val, val, val)
+            out.write(frame)
+
+        out.release()
+
+    @classmethod
+    def tearDownClass(cls):
+        if hasattr(cls, 'temp_dir'):
+            cls.temp_dir.cleanup()
+
+    @patch("useapi_nodes.folder_paths", None)
+    @patch("useapi_nodes._is_safe_path", return_value=True)
+    def test_extract_all_frames(self, _):
+        node = UseapiVideoToFrames()
+        result = node.execute(video_path=self.video_path)
+
+        # Result is a dict with "ui" and "result" keys
+        self.assertIn("result", result)
+        frames, count, fps = result["result"]
+
+        self.assertEqual(count, self.num_frames)
+        self.assertAlmostEqual(fps, self.fps, delta=0.1)
+
+        # frames should be a tensor of shape [N, H, W, 3]
+        self.assertEqual(frames.shape, (self.num_frames, self.height, self.width, 3))
+
+        # Test tensor values are float and in [0, 1] range
+        self.assertEqual(frames.dtype, torch.float32)
+        import numpy as np
+        frame_max = np.max(frames.numpy())
+        frame_min = np.min(frames.numpy())
+        self.assertLessEqual(frame_max, 1.0)
+        self.assertGreaterEqual(frame_min, 0.0)
+
+    @patch("useapi_nodes.folder_paths", None)
+    @patch("useapi_nodes._is_safe_path", return_value=True)
+    def test_extract_with_max_frames(self, _):
+        node = UseapiVideoToFrames()
+        max_f = 2
+        result = node.execute(video_path=self.video_path, max_frames=max_f)
+
+        frames, count, fps = result["result"]
+
+        self.assertEqual(count, max_f)
+        self.assertEqual(frames.shape, (max_f, self.height, self.width, 3))
+
+    @patch("useapi_nodes.folder_paths", None)
+    @patch("useapi_nodes._is_safe_path", return_value=True)
+    def test_extract_with_start_frame(self, _):
+        node = UseapiVideoToFrames()
+        start_f = 2
+        result = node.execute(video_path=self.video_path, start_frame=start_f)
+
+        frames, count, fps = result["result"]
+
+        expected_count = self.num_frames - start_f
+        self.assertEqual(count, expected_count)
+        self.assertEqual(frames.shape, (expected_count, self.height, self.width, 3))
+
+    @patch("useapi_nodes.folder_paths", None)
+    @patch("useapi_nodes._is_safe_path", return_value=True)
+    def test_extract_with_frame_step(self, _):
+        node = UseapiVideoToFrames()
+        step = 2
+        result = node.execute(video_path=self.video_path, frame_step=step)
+
+        frames, count, fps = result["result"]
+
+        # If 5 frames and step=2: indexes 0, 2, 4 -> 3 frames
+        expected_count = 3
+        self.assertEqual(count, expected_count)
+        self.assertEqual(frames.shape, (expected_count, self.height, self.width, 3))
+
+        # Effective fps should be src_fps / step
+        self.assertAlmostEqual(fps, self.fps / step, delta=0.1)
 
 
 if __name__ == "__main__":
