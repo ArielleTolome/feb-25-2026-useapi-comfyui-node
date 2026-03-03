@@ -481,6 +481,35 @@ def _runway_frames_poll(task_id: str, token: str,
                         max_wait=max_wait, poll_path="runwayml/tasks", pbar=pbar)
 
 
+
+def _google_flow_upload_image(token: str, image_tensor: torch.Tensor, email: str) -> str:
+    """Upload a ComfyUI IMAGE tensor to Google Flow as an image asset. Returns mediaGenerationId."""
+    email_clean = email.strip()
+    if not email_clean:
+        raise ValueError(f"{LOG} Google Flow upload requires an email address.")
+
+    url = f"{BASE_URL}/google-flow/assets/{urllib.parse.quote(email_clean, safe='')}"
+    png_bytes = _tensor_to_png_bytes(image_tensor)
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "image/png"}
+
+    logger.info(f"{LOG} Google Flow: uploading image asset for {email_clean}...")
+    status, raw = _make_request(url, "POST", headers, png_bytes, timeout=_TIMEOUT_SHORT)
+    data = _check_status(status, raw, url, "Google Flow upload asset", token=token)
+
+    nested = data.get("mediaGenerationId", "")
+    if isinstance(nested, dict):
+        media_gen_id = nested.get("mediaGenerationId", "")
+    else:
+        media_gen_id = nested
+    if not media_gen_id:
+        raise RuntimeError(
+            f"{LOG} Google Flow upload: no mediaGenerationId in response: "
+            f"{_redact_token(json.dumps(data), token)}"
+        )
+    logger.info(f"{LOG} Google Flow asset uploaded: {media_gen_id[:50]}...")
+    return media_gen_id
+
+
 def _runway_upload_image(token: str, image_tensor: torch.Tensor,
                          email: str = "", name: str = "comfyui_upload") -> str:
     """Upload a ComfyUI IMAGE tensor to Runway as a raw-binary image asset. Returns assetId."""
@@ -685,6 +714,8 @@ class UseapiVeoGenerate(_BaseNode):
                 "captcha_retry": ("INT", {"default": 3, "min": 1, "max": 10}),
                 "start_image": ("STRING", {"default": ""}),
                 "end_image": ("STRING", {"default": ""}),
+                "start_image_tensor": ("IMAGE",),
+                "end_image_tensor": ("IMAGE",),
                 "reference_image_1": ("STRING", {"default": ""}),
                 "reference_image_2": ("STRING", {"default": ""}),
                 "reference_image_3": ("STRING", {"default": ""}),
@@ -695,6 +726,7 @@ class UseapiVeoGenerate(_BaseNode):
                 api_token: str = "", email: str = "", count: int = 1,
                 seed: int = 0, captcha_retry: int = 3,
                 start_image: str = "", end_image: str = "",
+                start_image_tensor=None, end_image_tensor=None,
                 reference_image_1: str = "", reference_image_2: str = "",
                 reference_image_3: str = ""):
         token = _get_token(api_token)
@@ -705,10 +737,25 @@ class UseapiVeoGenerate(_BaseNode):
             body["seed"] = seed & 0x7FFFFFFF
         if email.strip():
             body["email"] = email.strip()
-        if start_image.strip():
-            body["startImage"] = start_image.strip()
-        if end_image.strip():
-            body["endImage"] = end_image.strip()
+
+        final_start_image = ""
+        if start_image_tensor is not None:
+            logger.info(f"{LOG} Veo Generate: auto-uploading start_image_tensor...")
+            final_start_image = _google_flow_upload_image(token, start_image_tensor, email)
+        elif start_image.strip():
+            final_start_image = start_image.strip()
+
+        final_end_image = ""
+        if end_image_tensor is not None:
+            logger.info(f"{LOG} Veo Generate: auto-uploading end_image_tensor...")
+            final_end_image = _google_flow_upload_image(token, end_image_tensor, email)
+        elif end_image.strip():
+            final_end_image = end_image.strip()
+
+        if final_start_image:
+            body["startImage"] = final_start_image
+        if final_end_image:
+            body["endImage"] = final_end_image
         for i, ref in enumerate([reference_image_1, reference_image_2, reference_image_3], 1):
             if ref.strip():
                 body[f"referenceImage_{i}"] = ref.strip()
@@ -997,29 +1044,7 @@ class UseapiGoogleFlowUploadAsset(_BaseNode):
 
     def execute(self, image: torch.Tensor, email: str, api_token: str = ""):
         token = _get_token(api_token)
-        email_clean = email.strip()
-        if not email_clean:
-            raise ValueError(f"{LOG} Google Flow Upload Asset requires an email address.")
-
-        url = f"{BASE_URL}/google-flow/assets/{urllib.parse.quote(email_clean, safe='')}"
-        png_bytes = _tensor_to_png_bytes(image)
-        headers = {"Authorization": f"Bearer {token}", "Content-Type": "image/png"}
-
-        logger.info(f"{LOG} Google Flow Upload Asset: uploading for {email_clean}...")
-        status, raw = _make_request(url, "POST", headers, png_bytes, timeout=_TIMEOUT_SHORT)
-        data = _check_status(status, raw, url, "Google Flow upload asset", token=token)
-
-        # Response: {"mediaGenerationId": {"mediaGenerationId": "user:..."}, ...}
-        nested = data.get("mediaGenerationId", "")
-        if isinstance(nested, dict):
-            media_gen_id = nested.get("mediaGenerationId", "")
-        else:
-            media_gen_id = nested
-        if not media_gen_id:
-            raise RuntimeError(
-                f"{LOG} Google Flow Upload Asset: no mediaGenerationId in response: {data}"
-            )
-        logger.info(f"{LOG} Google Flow Upload Asset: mediaGenerationId={media_gen_id[:50]}...")
+        media_gen_id = _google_flow_upload_image(token, image, email)
         return (media_gen_id,)
 
 
