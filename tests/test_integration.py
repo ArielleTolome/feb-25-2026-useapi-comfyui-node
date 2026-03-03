@@ -64,6 +64,7 @@ class TestRunwayFramesGenerate(unittest.TestCase):
             aspect_ratio="16:9",
             num_images="1",
             explore_mode=True,
+            timeout=180,
         )
         image_tensor, image_url, all_urls, task_id = result
         self.assertIsNotNone(image_tensor)
@@ -85,6 +86,7 @@ class TestVeoGenerate(unittest.TestCase):
             aspect_ratio="landscape",
             api_token=TOKEN,
             count=1,
+            timeout=600,
         )
         video_url, video_path, media_gen_id = result
         self.assertTrue(video_url.startswith("http"))

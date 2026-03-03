@@ -688,6 +688,7 @@ class UseapiVeoGenerate(_BaseNode):
                 "reference_image_1": ("STRING", {"default": ""}),
                 "reference_image_2": ("STRING", {"default": ""}),
                 "reference_image_3": ("STRING", {"default": ""}),
+                "timeout": ("INT", {"default": 0, "min": 0, "max": 3600}),
             },
         }
 
@@ -696,8 +697,9 @@ class UseapiVeoGenerate(_BaseNode):
                 seed: int = 0, captcha_retry: int = 3,
                 start_image: str = "", end_image: str = "",
                 reference_image_1: str = "", reference_image_2: str = "",
-                reference_image_3: str = ""):
+                reference_image_3: str = "", timeout: int = 0):
         token = _get_token(api_token)
+        resolved_timeout = timeout if timeout > 0 else _get_config_value("UseapiVeoGenerate", "timeout", _TIMEOUT_XLONG)
         url = f"{BASE_URL}/google-flow/videos"
         body = {"prompt": prompt, "model": model, "aspectRatio": aspect_ratio,
                 "count": count}
@@ -715,7 +717,7 @@ class UseapiVeoGenerate(_BaseNode):
 
         logger.info(f"{LOG} Veo Generate: model={model}, prompt='{prompt[:60]}...'")
         data = _submit_with_progress(
-            url, body, token, _ESTIMATED_SECS_VEO_GEN, None, "Veo generate",
+            url, body, token, _ESTIMATED_SECS_VEO_GEN, resolved_timeout, "Veo generate",
             captcha_retry=captcha_retry
         )
 
@@ -783,15 +785,17 @@ class UseapiVeoUpscale(_BaseNode):
             },
             "optional": {
                 "api_token": ("STRING", {"default": ""}),
+                "timeout": ("INT", {"default": 0, "min": 0, "max": 3600}),
             },
         }
 
-    def execute(self, media_generation_id: str, resolution: str, api_token: str = ""):
+    def execute(self, media_generation_id: str, resolution: str, api_token: str = "", timeout: int = 0):
         token = _get_token(api_token)
+        resolved_timeout = timeout if timeout > 0 else _get_config_value("UseapiVeoUpscale", "timeout", _TIMEOUT_XLONG)
         url = f"{BASE_URL}/google-flow/videos/upscale"
         body = {"mediaGenerationId": media_generation_id, "resolution": resolution}
         logger.info(f"{LOG} Veo Upscale: {resolution}, mediaGenerationId={media_generation_id[:50]}...")
-        data = _submit_with_progress(url, body, token, _ESTIMATED_SECS_VEO_UPSCALE, _TIMEOUT_XLONG, "Veo upscale")
+        data = _submit_with_progress(url, body, token, _ESTIMATED_SECS_VEO_UPSCALE, resolved_timeout, "Veo upscale")
 
         media_list = data.get("media", [])
         if not media_list:
@@ -831,13 +835,15 @@ class UseapiVeoExtend(_BaseNode):
                 "count": ("INT", {"default": 1, "min": 1, "max": 4}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 2147483647}),
                 "captcha_retry": ("INT", {"default": 3, "min": 1, "max": 10}),
+                "timeout": ("INT", {"default": 0, "min": 0, "max": 3600}),
             },
         }
 
     def execute(self, media_generation_id: str, prompt: str, api_token: str = "",
                 email: str = "", model: str = "veo-3.1-fast", count: int = 1,
-                seed: int = 0, captcha_retry: int = 3):
+                seed: int = 0, captcha_retry: int = 3, timeout: int = 0):
         token = _get_token(api_token)
+        resolved_timeout = timeout if timeout > 0 else _get_config_value("UseapiVeoExtend", "timeout", _TIMEOUT_XLONG)
         url = f"{BASE_URL}/google-flow/videos/extend"
         body = {"mediaGenerationId": media_generation_id, "prompt": prompt,
                 "model": model, "count": count}
@@ -847,7 +853,7 @@ class UseapiVeoExtend(_BaseNode):
             body["seed"] = seed & 0x7FFFFFFF
         logger.info(f"{LOG} Veo Extend: mediaGenerationId={media_generation_id[:50]}...")
         data = _submit_with_progress(
-            url, body, token, _ESTIMATED_SECS_VEO_EXTEND, _TIMEOUT_XLONG, "Veo extend",
+            url, body, token, _ESTIMATED_SECS_VEO_EXTEND, resolved_timeout, "Veo extend",
             captcha_retry=captcha_retry
         )
 
@@ -1144,6 +1150,7 @@ class UseapiRunwayGenerate(_BaseNode):
                 "max_jobs": ("INT", {"default": 5, "min": 1, "max": 10}),
                 "poll_interval": ("INT", {"default": 10, "min": 5, "max": 60}),
                 "max_wait": ("INT", {"default": 600, "min": 60, "max": 1800}),
+                "timeout": ("INT", {"default": 0, "min": 0, "max": 3600}),
             },
         }
 
@@ -1152,8 +1159,9 @@ class UseapiRunwayGenerate(_BaseNode):
                 email: str = "", aspect_ratio: str = "16:9",
                 seconds: str = "10", seed: int = 0,
                 explore_mode: bool = True, max_jobs: int = 5,
-                poll_interval: int = 10, max_wait: int = 600):
+                poll_interval: int = 10, max_wait: int = 600, timeout: int = 0):
         token = _get_token(api_token)
+        resolved_timeout = timeout if timeout > 0 else _get_config_value("UseapiRunwayGenerate", "timeout", _TIMEOUT_XLONG)
 
         # Auto-upload image if provided without asset_id
         final_asset_id = asset_id.strip()
@@ -1177,7 +1185,7 @@ class UseapiRunwayGenerate(_BaseNode):
             body["email"] = email.strip()
 
         logger.info(f"{LOG} Runway Generate: model={model}, {seconds}s, prompt='{text_prompt[:60]}'")
-        artifacts, task_id = _runway_submit_and_poll(url, body, token, f"Runway {model} create", poll_interval, max_wait)
+        artifacts, task_id = _runway_submit_and_poll(url, body, token, f"Runway {model} create", poll_interval, max_wait, timeout=resolved_timeout)
         video_url = artifacts[0]["url"]
         video_path = _download_file(video_url, ".mp4")
         return (video_url, video_path, task_id)
@@ -1212,6 +1220,7 @@ class UseapiRunwayVideoToVideo(_BaseNode):
                 "max_jobs": ("INT", {"default": 5, "min": 1, "max": 10}),
                 "poll_interval": ("INT", {"default": 10, "min": 5, "max": 60}),
                 "max_wait": ("INT", {"default": 600, "min": 60, "max": 1800}),
+                "timeout": ("INT", {"default": 0, "min": 0, "max": 3600}),
             },
         }
 
@@ -1219,8 +1228,9 @@ class UseapiRunwayVideoToVideo(_BaseNode):
                 api_token: str = "", text_prompt: str = "",
                 seconds: str = "10", seed: int = 0,
                 explore_mode: bool = True, max_jobs: int = 5,
-                poll_interval: int = 10, max_wait: int = 600):
+                poll_interval: int = 10, max_wait: int = 600, timeout: int = 0):
         token = _get_token(api_token)
+        resolved_timeout = timeout if timeout > 0 else _get_config_value("UseapiRunwayVideoToVideo", "timeout", _TIMEOUT_XLONG)
         url = f"{BASE_URL}/runwayml/{model}/video"
         # gen4 uses video_assetId; gen3turbo uses assetId
         asset_key = "video_assetId" if model == "gen4" else "assetId"
@@ -1236,7 +1246,7 @@ class UseapiRunwayVideoToVideo(_BaseNode):
             body["seed"] = seed
 
         logger.info(f"{LOG} Runway Video-to-Video: model={model}, assetId={video_asset_id[:50]}...")
-        artifacts, task_id = _runway_submit_and_poll(url, body, token, f"Runway {model} video-to-video create", poll_interval, max_wait)
+        artifacts, task_id = _runway_submit_and_poll(url, body, token, f"Runway {model} video-to-video create", poll_interval, max_wait, timeout=resolved_timeout)
         video_url = artifacts[0]["url"]
         video_path = _download_file(video_url, ".mp4")
         return (video_url, video_path, task_id)
@@ -1277,6 +1287,7 @@ class UseapiRunwayFramesGenerate(_BaseNode):
                 "image_ref_3": ("IMAGE",),
                 "poll_interval": ("INT", {"default": 5, "min": 5, "max": 60}),
                 "max_wait": ("INT", {"default": 120, "min": 60, "max": 600}),
+                "timeout": ("INT", {"default": 0, "min": 0, "max": 3600}),
             },
         }
 
@@ -1284,8 +1295,9 @@ class UseapiRunwayFramesGenerate(_BaseNode):
                 aspect_ratio: str = "16:9", style: str = "", diversity: int = 2,
                 num_images: str = "4", seed: int = 0, explore_mode: bool = True,
                 image_ref_1=None, image_ref_2=None, image_ref_3=None,
-                poll_interval: int = 5, max_wait: int = 120):
+                poll_interval: int = 5, max_wait: int = 120, timeout: int = 0):
         token = _get_token(api_token)
+        resolved_timeout = timeout if timeout > 0 else _get_config_value("UseapiRunwayFramesGenerate", "timeout", _TIMEOUT_XLONG)
 
         # Auto-upload reference images
         asset_ids = []
@@ -1313,9 +1325,7 @@ class UseapiRunwayFramesGenerate(_BaseNode):
             body[f"imageAssetId{i}"] = aid
 
         logger.info(f"{LOG} Runway Frames: num_images={num_images}, prompt='{text_prompt[:60]}'")
-        headers = _auth_headers(token)
-        status, raw = _make_request(url, "POST", headers, json.dumps(body).encode(), timeout=60)
-        data = _check_status(status, raw, url, "Runway Frames create", token=token)
+        data = _send_json(url, body, token, resolved_timeout, "Runway Frames create")
 
         task_id = _extract_runway_task_id(data)
         if not task_id:
@@ -1655,6 +1665,7 @@ class UseapiVeoConcatenate(_BaseNode):
             optional[f"trim_start_{i}"] = ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0})
             optional[f"trim_end_{i}"]   = ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0})
         optional["api_token"] = ("STRING", {"default": ""})
+        optional["timeout"] = ("INT", {"default": 0, "min": 0, "max": 3600})
         return {
             "required": {
                 "media_1": ("STRING", {"default": ""}),
@@ -1665,6 +1676,8 @@ class UseapiVeoConcatenate(_BaseNode):
 
     def execute(self, media_1: str, media_2: str, **kwargs):
         token = _get_token(kwargs.get("api_token", ""))
+        timeout_input = kwargs.get("timeout", 0)
+        resolved_timeout = timeout_input if timeout_input > 0 else _get_config_value("UseapiVeoConcatenate", "timeout", _TIMEOUT_XLONG)
         ids   = [media_1, media_2] + [kwargs.get(f"media_{i}", "") for i in range(3, 11)]
         trims = [(kwargs.get(f"trim_start_{i}", 0.0), kwargs.get(f"trim_end_{i}", 0.0))
                  for i in range(1, 11)]
@@ -1693,7 +1706,7 @@ class UseapiVeoConcatenate(_BaseNode):
         for idx, item in enumerate(media_list, start=1):
             logger.info(f"{LOG} Veo Concatenate: media[{idx}].mediaGenerationId={item['mediaGenerationId']!r}")
         logger.info(f"{LOG} Veo Concatenate: {len(media_list)} videos...")
-        data = _submit_with_progress(url, body, token, _ESTIMATED_SECS_VEO_CONCAT, _TIMEOUT_XLONG, "Veo concatenate")
+        data = _submit_with_progress(url, body, token, _ESTIMATED_SECS_VEO_CONCAT, resolved_timeout, "Veo concatenate")
         encoded = data.get("encodedVideo", "")
         if not encoded:
             raise RuntimeError(f"{LOG} Veo Concatenate: no encodedVideo in response: {data}")
