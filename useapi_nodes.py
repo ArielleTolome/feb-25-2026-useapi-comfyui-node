@@ -1519,74 +1519,26 @@ class UseapiVeoConcatenate:
 
     @classmethod
     def INPUT_TYPES(cls):
+        optional = {}
+        for i in range(3, 11):
+            optional[f"media_{i}"] = ("STRING", {"default": ""})
+        for i in range(1, 11):
+            optional[f"trim_start_{i}"] = ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0})
+            optional[f"trim_end_{i}"]   = ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0})
+        optional["api_token"] = ("STRING", {"default": ""})
         return {
             "required": {
                 "media_1": ("STRING", {"default": ""}),
                 "media_2": ("STRING", {"default": ""}),
             },
-            "optional": {
-                "media_3":  ("STRING", {"default": ""}),
-                "media_4":  ("STRING", {"default": ""}),
-                "media_5":  ("STRING", {"default": ""}),
-                "media_6":  ("STRING", {"default": ""}),
-                "media_7":  ("STRING", {"default": ""}),
-                "media_8":  ("STRING", {"default": ""}),
-                "media_9":  ("STRING", {"default": ""}),
-                "media_10": ("STRING", {"default": ""}),
-                "trim_start_1":  ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_end_1":    ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_start_2":  ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_end_2":    ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_start_3":  ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_end_3":    ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_start_4":  ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_end_4":    ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_start_5":  ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_end_5":    ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_start_6":  ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_end_6":    ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_start_7":  ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_end_7":    ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_start_8":  ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_end_8":    ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_start_9":  ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_end_9":    ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_start_10": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_end_10":   ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "api_token": ("STRING", {"default": ""}),
-            },
+            "optional": optional,
         }
 
-    def execute(self, media_1: str, media_2: str,
-                media_3: str = "", media_4: str = "", media_5: str = "",
-                media_6: str = "", media_7: str = "", media_8: str = "",
-                media_9: str = "", media_10: str = "",
-                trim_start_1: float = 0.0, trim_end_1: float = 0.0,
-                trim_start_2: float = 0.0, trim_end_2: float = 0.0,
-                trim_start_3: float = 0.0, trim_end_3: float = 0.0,
-                trim_start_4: float = 0.0, trim_end_4: float = 0.0,
-                trim_start_5: float = 0.0, trim_end_5: float = 0.0,
-                trim_start_6: float = 0.0, trim_end_6: float = 0.0,
-                trim_start_7: float = 0.0, trim_end_7: float = 0.0,
-                trim_start_8: float = 0.0, trim_end_8: float = 0.0,
-                trim_start_9: float = 0.0, trim_end_9: float = 0.0,
-                trim_start_10: float = 0.0, trim_end_10: float = 0.0,
-                api_token: str = ""):
-        token = _get_token(api_token)
-        ids = [media_1, media_2, media_3, media_4, media_5,
-               media_6, media_7, media_8, media_9, media_10]
-        trims = [
-            (trim_start_1,  trim_end_1),
-            (trim_start_2,  trim_end_2),
-            (trim_start_3,  trim_end_3),
-            (trim_start_4,  trim_end_4),
-            (trim_start_5,  trim_end_5),
-            (trim_start_6,  trim_end_6),
-            (trim_start_7,  trim_end_7),
-            (trim_start_8,  trim_end_8),
-            (trim_start_9,  trim_end_9),
-            (trim_start_10, trim_end_10),
-        ]
+    def execute(self, media_1: str, media_2: str, **kwargs):
+        token = _get_token(kwargs.get("api_token", ""))
+        ids   = [media_1, media_2] + [kwargs.get(f"media_{i}", "") for i in range(3, 11)]
+        trims = [(kwargs.get(f"trim_start_{i}", 0.0), kwargs.get(f"trim_end_{i}", 0.0))
+                 for i in range(1, 11)]
         media_list = []
         for mgid, (ts, te) in zip(ids, trims):
             if mgid.strip():
