@@ -302,8 +302,10 @@ def _check_status(status: int, body: bytes, url: str, context: str = "", token: 
                 )
             else:
                 hint = (
-                    "Check account routing (email), prompt/model compatibility, "
-                    "or regenerate the source media. "
+                    "Confirm your linked Google account has a Google AI Ultra subscription "
+                    "(required for veo-3.1-fast/quality). "
+                    "If you have multiple Google accounts on useapi.net, set the 'email' field "
+                    "to select the right one. Try a different prompt or model. "
                 )
             raise RuntimeError(
                 f"{label} Bad Request (400). All operations failed on the server. "
@@ -734,7 +736,7 @@ class UseapiVeoGenerate(_BaseNode):
         default_model = _get_config_value("UseapiVeoGenerate", "model", "veo-3.1-fast")
         default_ar = _get_config_value("UseapiVeoGenerate", "aspect_ratio", "landscape")
 
-        models = ["veo-3.1-fast", "veo-3.1-quality", "veo-3.1-fast-relaxed", "veo-3", "veo-2"]
+        models = ["veo-3.1-fast", "veo-3.1-quality", "veo-3.1-fast-relaxed"]
         aspect_ratios = ["landscape", "portrait"]
 
         return {
@@ -781,6 +783,13 @@ class UseapiVeoGenerate(_BaseNode):
             final_start_image = _google_flow_upload_image(token, start_image_tensor, email)
         elif start_image.strip():
             final_start_image = start_image.strip()
+            if final_start_image.startswith(("http://", "https://")):
+                raise ValueError(
+                    f"{LOG} Veo Generate: 'start_image' must be a mediaGenerationId, not a URL. "
+                    "Connect the 'media_generation_id' output from UseapiGoogleFlowGenerateImage, "
+                    "or use the 'start_image_tensor' input with the IMAGE output instead."
+                )
+            logger.info(f"{LOG} Veo Generate: using start_image mediaGenerationId={final_start_image[:50]}...")
 
         final_end_image = ""
         if end_image_tensor is not None:
@@ -788,6 +797,13 @@ class UseapiVeoGenerate(_BaseNode):
             final_end_image = _google_flow_upload_image(token, end_image_tensor, email)
         elif end_image.strip():
             final_end_image = end_image.strip()
+            if final_end_image.startswith(("http://", "https://")):
+                raise ValueError(
+                    f"{LOG} Veo Generate: 'end_image' must be a mediaGenerationId, not a URL. "
+                    "Connect the 'media_generation_id' output from UseapiGoogleFlowGenerateImage, "
+                    "or use the 'end_image_tensor' input with the IMAGE output instead."
+                )
+            logger.info(f"{LOG} Veo Generate: using end_image mediaGenerationId={final_end_image[:50]}...")
 
         if final_start_image:
             body["startImage"] = final_start_image
