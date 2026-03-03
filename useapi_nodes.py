@@ -19,6 +19,7 @@ import threading
 import urllib.request
 import urllib.error
 import urllib.parse
+import difflib
 import numpy as np
 import torch
 from PIL import Image
@@ -74,6 +75,32 @@ def _load_config():
             with open(config_path, "r", encoding="utf-8") as f:
                 _CONFIG = json.load(f)
             logger.info(f"{LOG} Loaded config from {config_path}")
+
+            # Validation
+            known_globals = {"default_timeout": int, "default_aspect_ratio": str}
+
+            for key, value in _CONFIG.items():
+                if key in known_globals:
+                    expected_type = known_globals[key]
+                    if not isinstance(value, expected_type):
+                        logger.warning(
+                            f"{LOG} Config validation: '{key}' should be of type {expected_type.__name__}, "
+                            f"but got {type(value).__name__}."
+                        )
+                elif key.startswith("Useapi"):
+                    if not isinstance(value, dict):
+                        logger.warning(
+                            f"{LOG} Config validation: Node key '{key}' must be a dictionary, "
+                            f"but got {type(value).__name__}."
+                        )
+                else:
+                    known_keys = list(known_globals.keys())
+                    close_matches = difflib.get_close_matches(key, known_keys, n=1, cutoff=0.6)
+                    if close_matches:
+                        logger.warning(f"{LOG} Unknown config key '{key}' — did you mean '{close_matches[0]}'?")
+                    else:
+                        logger.warning(f"{LOG} Unknown config key '{key}'.")
+
         except Exception as e:
             logger.info(f"{LOG} Error loading nodes_config.json: {e}")
 

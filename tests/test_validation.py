@@ -25,7 +25,57 @@ except ImportError:
     from unittest.mock import MagicMock
     sys.modules["cv2"] = MagicMock()
 
-from useapi_nodes import UseapiVeoConcatenate
+from useapi_nodes import UseapiVeoConcatenate, _load_config
+
+class TestConfigValidation(unittest.TestCase):
+    @mock.patch('useapi_nodes.logger.warning')
+    @mock.patch('useapi_nodes.logger.info')
+    def test_load_config_validation(self, mock_info, mock_warning):
+        """Test _load_config warns about invalid types and unknown keys."""
+        import json
+        import tempfile
+        import useapi_nodes
+
+        # Create a temporary invalid config file
+        invalid_config = {
+            "default_timeout": "not_an_int",
+            "default_aspect_ratio": 123,
+            "UseapiVeoGenerate": "not_a_dict",
+            "defualt_timeout": 500,
+            "completely_unknown_key": "value"
+        }
+
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
+            json.dump(invalid_config, f)
+            temp_config_path = f.name
+
+        # Patch the config path to our temp file
+        with mock.patch('os.path.join', return_value=temp_config_path):
+            # Patch exists to True
+            with mock.patch('os.path.exists', return_value=True):
+                useapi_nodes._load_config()
+
+        # Clean up temp file
+        os.remove(temp_config_path)
+
+        # Check that warnings were logged for all invalid items
+        warning_calls = [call[0][0] for call in mock_warning.call_args_list]
+
+        # Check timeout type validation
+        self.assertTrue(any("Config validation: 'default_timeout' should be of type int, but got str" in w for w in warning_calls))
+
+        # Check aspect ratio type validation
+        self.assertTrue(any("Config validation: 'default_aspect_ratio' should be of type str, but got int" in w for w in warning_calls))
+
+        # Check node key type validation
+        self.assertTrue(any("Config validation: Node key 'UseapiVeoGenerate' must be a dictionary, but got str" in w for w in warning_calls))
+
+        # Check typo suggestion
+        self.assertTrue(any("Unknown config key 'defualt_timeout' — did you mean 'default_timeout'?" in w for w in warning_calls))
+
+        # Check unknown key
+        self.assertTrue(any("Unknown config key 'completely_unknown_key'." in w for w in warning_calls))
+
 
 class TestVeoConcatenateValidation(unittest.TestCase):
     def test_insufficient_media_args(self):
