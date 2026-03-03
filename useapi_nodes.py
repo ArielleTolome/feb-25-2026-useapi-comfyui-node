@@ -1412,7 +1412,107 @@ class UseapiLoadVideoFrame:
         return (tensor,)
 
 
-# ── Node 14: Preview Video ────────────────────────────────────────────────────
+# ── Node 14: Video to Frames ──────────────────────────────────────────────────
+class UseapiVideoToFrames:
+    """Decode a video file into IMAGE tensor frames + show in-node video preview.
+
+    Requires opencv-python: pip install opencv-python
+    Wire video_path from any UseAPI video node. Output IMAGE batch connects
+    directly to VHS_VideoCombine (pass fps too) or ComfyUI native SaveVideo.
+    """
+
+    CATEGORY = "Useapi.net/Utils"
+    FUNCTION = "execute"
+    OUTPUT_NODE = True
+    RETURN_TYPES = ("IMAGE", "INT", "FLOAT")
+    RETURN_NAMES = ("frames", "frame_count", "fps")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "video_path": ("STRING", {"default": ""}),
+            },
+            "optional": {
+                "max_frames": ("INT", {"default": 0, "min": 0, "max": 99999,
+                                       "tooltip": "0 = all frames"}),
+                "start_frame": ("INT", {"default": 0, "min": 0, "max": 99999}),
+                "frame_step": ("INT", {"default": 1, "min": 1, "max": 100,
+                                       "tooltip": "Sample every Nth frame. 2 = half FPS."}),
+            },
+        }
+
+    def execute(self, video_path: str, max_frames: int = 0,
+                start_frame: int = 0, frame_step: int = 1):
+        if not _CV2_AVAILABLE:
+            raise RuntimeError(
+                f"{LOG} UseapiVideoToFrames requires opencv-python. "
+                "Install it: pip install opencv-python"
+            )
+        if not _is_safe_path(video_path):
+            raise ValueError(
+                f"{LOG} Security error: unsafe path or URL rejected: {video_path}"
+            )
+
+        cap = cv2.VideoCapture(video_path)
+        try:
+            if not cap.isOpened():
+                raise RuntimeError(f"{LOG} Cannot open video file: {video_path}")
+
+            src_fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+            frames = []
+            idx = start_frame
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                if (idx - start_frame) % frame_step == 0:
+                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    t = torch.from_numpy(rgb.astype(np.float32) / 255.0)
+                    frames.append(t)
+                    if max_frames > 0 and len(frames) >= max_frames:
+                        break
+                idx += 1
+        finally:
+            cap.release()
+
+        if not frames:
+            raise RuntimeError(
+                f"{LOG} UseapiVideoToFrames: no frames extracted from {video_path}. "
+                f"Video has {total} frames; start_frame={start_frame}."
+            )
+
+        batch = torch.stack(frames, dim=0)  # [N, H, W, 3]
+        effective_fps = float(src_fps) / float(frame_step)
+        logger.info(
+            f"{LOG} Video to Frames: extracted {len(frames)} frames "
+            f"({effective_fps:.2f} effective fps) from {video_path}"
+        )
+
+        # Copy to ComfyUI output dir for in-node video preview
+        ui_videos = []
+        try:
+            import folder_paths
+            output_dir = folder_paths.get_output_directory()
+            filename = f"useapi_{os.path.basename(video_path)}"
+            dest = os.path.join(output_dir, filename)
+            shutil.copy2(video_path, dest)
+            ui_videos.append({
+                "filename": filename,
+                "subfolder": "",
+                "type": "output",
+                "format": "video/mp4",
+            })
+        except Exception as e:
+            logger.warning(f"{LOG} UseapiVideoToFrames: preview copy failed: {e}")
+
+        return {"ui": {"video": ui_videos}, "result": (batch, len(frames), effective_fps)}
+
+
+# ── Node 15: Preview Video ────────────────────────────────────────────────────
 class UseapiPreviewVideo:
     """Display video URL and local path info as text.
 
