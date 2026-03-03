@@ -1509,7 +1509,7 @@ class UseapiVeoVideoToGif:
 
 # ── Node 16: Veo Concatenate Videos ──────────────────────────────────────────
 class UseapiVeoConcatenate:
-    """Concatenate 2-5 Veo videos with optional per-clip trim controls."""
+    """Concatenate 2-10 Veo videos with optional per-clip trim controls."""
 
     CATEGORY = "Useapi.net/Google Flow"
     FUNCTION = "execute"
@@ -1519,46 +1519,26 @@ class UseapiVeoConcatenate:
 
     @classmethod
     def INPUT_TYPES(cls):
+        optional = {}
+        for i in range(3, 11):
+            optional[f"media_{i}"] = ("STRING", {"default": ""})
+        for i in range(1, 11):
+            optional[f"trim_start_{i}"] = ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0})
+            optional[f"trim_end_{i}"]   = ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0})
+        optional["api_token"] = ("STRING", {"default": ""})
         return {
             "required": {
                 "media_1": ("STRING", {"default": ""}),
                 "media_2": ("STRING", {"default": ""}),
             },
-            "optional": {
-                "media_3": ("STRING", {"default": ""}),
-                "media_4": ("STRING", {"default": ""}),
-                "media_5": ("STRING", {"default": ""}),
-                "trim_start_1": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_end_1":   ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_start_2": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_end_2":   ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_start_3": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_end_3":   ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_start_4": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_end_4":   ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_start_5": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "trim_end_5":   ("FLOAT", {"default": 0.0, "min": 0.0, "max": 8.0}),
-                "api_token": ("STRING", {"default": ""}),
-            },
+            "optional": optional,
         }
 
-    def execute(self, media_1: str, media_2: str,
-                media_3: str = "", media_4: str = "", media_5: str = "",
-                trim_start_1: float = 0.0, trim_end_1: float = 0.0,
-                trim_start_2: float = 0.0, trim_end_2: float = 0.0,
-                trim_start_3: float = 0.0, trim_end_3: float = 0.0,
-                trim_start_4: float = 0.0, trim_end_4: float = 0.0,
-                trim_start_5: float = 0.0, trim_end_5: float = 0.0,
-                api_token: str = ""):
-        token = _get_token(api_token)
-        ids = [media_1, media_2, media_3, media_4, media_5]
-        trims = [
-            (trim_start_1, trim_end_1),
-            (trim_start_2, trim_end_2),
-            (trim_start_3, trim_end_3),
-            (trim_start_4, trim_end_4),
-            (trim_start_5, trim_end_5),
-        ]
+    def execute(self, media_1: str, media_2: str, **kwargs):
+        token = _get_token(kwargs.get("api_token", ""))
+        ids   = [media_1, media_2] + [kwargs.get(f"media_{i}", "") for i in range(3, 11)]
+        trims = [(kwargs.get(f"trim_start_{i}", 0.0), kwargs.get(f"trim_end_{i}", 0.0))
+                 for i in range(1, 11)]
         media_list = []
         for mgid, (ts, te) in zip(ids, trims):
             if mgid.strip():

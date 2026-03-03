@@ -62,5 +62,61 @@ class TestVeoConcatenateValidation(unittest.TestCase):
                 api_token="dummy"
             )
 
+    @mock.patch('useapi_nodes._submit_with_progress')
+    def test_extended_slots_media_6_to_10(self, mock_submit):
+        """Slots media_6..media_10 must appear in the payload when non-empty."""
+        mock_submit.return_value = {"encodedVideo": "AAAA"}  # minimal valid response
+
+        node = UseapiVeoConcatenate()
+        node.execute(
+            media_1="id1", media_2="id2",
+            media_6="id6", media_8="id8", media_10="id10",
+            api_token="dummy"
+        )
+
+        _, call_kwargs = mock_submit.call_args
+        body = mock_submit.call_args[0][1]  # positional arg: body
+        media_ids = [e["mediaGenerationId"] for e in body["media"]]
+        self.assertIn("id1",  media_ids)
+        self.assertIn("id2",  media_ids)
+        self.assertIn("id6",  media_ids)
+        self.assertIn("id8",  media_ids)
+        self.assertIn("id10", media_ids)
+        # Skipped (empty) slots must NOT appear
+        self.assertNotIn("", media_ids)
+
+    @mock.patch('useapi_nodes._submit_with_progress')
+    def test_trim_values_on_extended_slots(self, mock_submit):
+        """trim_start/trim_end for slots 6-10 must reach the API payload."""
+        mock_submit.return_value = {"encodedVideo": "AAAA"}
+
+        node = UseapiVeoConcatenate()
+        node.execute(
+            media_1="a", media_2="b", media_7="c",
+            trim_start_7=1.5, trim_end_7=2.0,
+            api_token="dummy"
+        )
+
+        body = mock_submit.call_args[0][1]
+        entry_c = next(e for e in body["media"] if e["mediaGenerationId"] == "c")
+        self.assertAlmostEqual(entry_c["trimStart"], 1.5)
+        self.assertAlmostEqual(entry_c["trimEnd"],   2.0)
+
+    @mock.patch('useapi_nodes._submit_with_progress')
+    def test_all_ten_slots_populated(self, mock_submit):
+        """All 10 videos in, all 10 should appear in payload."""
+        mock_submit.return_value = {"encodedVideo": "AAAA"}
+
+        node = UseapiVeoConcatenate()
+        node.execute(
+            **{f"media_{i}": f"id{i}" for i in range(1, 11)},
+            api_token="dummy"
+        )
+
+        body = mock_submit.call_args[0][1]
+        self.assertEqual(len(body["media"]), 10)
+        for i in range(1, 11):
+            self.assertIn(f"id{i}", [e["mediaGenerationId"] for e in body["media"]])
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
