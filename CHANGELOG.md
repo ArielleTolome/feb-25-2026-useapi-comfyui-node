@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-03-03
+
+### Added
+- **3 New Runway Nodes**:
+  - `UseapiRunwayAleph`: Video-to-video transformation using Gen4 Aleph with optional image conditioning.
+  - `UseapiRunwayGen3TurboExpand`: Expand (outpaint) Gen3 Turbo videos to landscape or portrait.
+  - `UseapiRunwayGen3TurboActOne`: Motion transfer from a driving video to a character using Gen3 Turbo Act One.
+- Updated tests to cover the 3 new nodes (structure, contract, and category validation).
+
 ## [0.2.0] - 2026-02-25
 
 ### Added

@@ -42,6 +42,9 @@ EXPECTED_NODES = [
     "UseapiRunwayImageUpscaler",
     "UseapiLoadVideoFrame",
     "UseapiPreviewVideo",
+    "UseapiRunwayAleph",
+    "UseapiRunwayGen3TurboExpand",
+    "UseapiRunwayGen3TurboActOne",
 ]
 
 
@@ -95,6 +98,8 @@ class TestCategories(unittest.TestCase):
     RUNWAY = [
         "UseapiRunwayUploadAsset", "UseapiRunwayGenerate", "UseapiRunwayVideoToVideo",
         "UseapiRunwayFramesGenerate", "UseapiRunwayImageUpscaler",
+        "UseapiRunwayAleph", "UseapiRunwayGen3TurboExpand",
+        "UseapiRunwayGen3TurboActOne",
     ]
 
     def _check_category(self, names, expected_cat):

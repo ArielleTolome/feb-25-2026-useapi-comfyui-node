@@ -2,7 +2,7 @@
 
 ![CI](https://github.com/ArielleTolome/feb-25-2026-useapi-comfyui-node/actions/workflows/ci.yml/badge.svg)
 
-Generate images and videos using [Useapi.net](https://useapi.net)'s AI API proxy directly within ComfyUI workflows. Supports Google Flow (Imagen 4, Veo 3.1) and Runway (Gen-4, Gen-4 Turbo, Frames) via your existing subscriptions — no separate API keys needed, just your Useapi.net token.
+Generate images and videos using [Useapi.net](https://useapi.net)'s AI API proxy directly within ComfyUI workflows. Supports Google Flow (Imagen 4, Veo 3.1) and Runway (Gen-4.5, Gen-4 incl. Aleph, Gen-4 Turbo, Gen-3 Turbo, Frames) via your existing subscriptions — no separate API keys needed, just your Useapi.net token.
 
 ---
 
@@ -215,6 +215,21 @@ Transcribe a Runway video or audio asset to text.
 #### `UseapiRunwayGen3TurboExtend`
 Extend a Runway Gen3 Turbo video.
 - **Input**: `asset_id`, `text_prompt`, `seed`
+- **Output**: `video_url`, `video_path`, `task_id`
+
+#### `UseapiRunwayAleph`
+Video-to-video transformation using Runway Gen4 Aleph with optional image conditioning.
+- **Input**: `video_asset_id`, `text_prompt`, `image_asset_id` (optional), `image` (optional, auto-uploads)
+- **Output**: `video_url`, `video_path`, `task_id`
+
+#### `UseapiRunwayGen3TurboExpand`
+Expand (outpaint) a Runway Gen3 Turbo video to a different aspect ratio.
+- **Input**: `video_asset_id`, `image_asset_id` (optional), `text_prompt`, `seconds`, `outpaint_aspect_ratio`
+- **Output**: `video_url`, `video_path`, `task_id`
+
+#### `UseapiRunwayGen3TurboActOne`
+Transfer motion from a driving video to a character using Gen3 Turbo Act One.
+- **Input**: `driving_asset_id`, `character_asset_id`, `aspect_ratio`, `motion_multiplier`
 - **Output**: `video_url`, `video_path`, `task_id`
 
 ---

@@ -2,7 +2,7 @@
 
 Provides image and video generation via:
   - Google Flow: Imagen 4, Gemini (Nano Banana), Veo 3.1
-  - Runway: Gen-4, Gen-4 Turbo, Gen-3 Turbo, Frames
+  - Runway: Gen-4.5, Gen-4 (incl. Aleph), Gen-4 Turbo, Gen-3 Turbo, Frames
 """
 import os
 import io
@@ -2048,6 +2048,216 @@ class UseapiRunwayGen3TurboExtend:
         return (video_url, video_path, task_id)
 
 
+# ── Node 25: Runway Aleph (Video-to-Video with Image Conditioning) ────────────
+class UseapiRunwayAleph:
+    """Generate video using Runway Gen4 Aleph — video-to-video with optional image conditioning.
+
+    Requires a video_asset_id. Optionally accepts an image_asset_id for visual
+    conditioning and a text_prompt for guiding the transformation.
+    Async: creates task, polls until SUCCEEDED.
+    """
+
+    CATEGORY = "Useapi.net/Runway"
+    FUNCTION = "execute"
+    OUTPUT_NODE = True
+    RETURN_TYPES = ("STRING", "STRING", "STRING")
+    RETURN_NAMES = ("video_url", "video_path", "task_id")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "video_asset_id": ("STRING", {"default": ""}),
+                "text_prompt": ("STRING", {"multiline": True, "default": ""}),
+            },
+            "optional": {
+                "api_token": ("STRING", {"default": ""}),
+                "image_asset_id": ("STRING", {"default": ""}),
+                "image": ("IMAGE",),
+                "email": ("STRING", {"default": ""}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 4294967294}),
+                "explore_mode": ("BOOLEAN", {"default": True}),
+                "max_jobs": ("INT", {"default": 5, "min": 1, "max": 10}),
+                "poll_interval": ("INT", {"default": 10, "min": 5, "max": 60}),
+                "max_wait": ("INT", {"default": 600, "min": 60, "max": 1800}),
+            },
+        }
+
+    def execute(self, video_asset_id: str, text_prompt: str,
+                api_token: str = "", image_asset_id: str = "", image=None,
+                email: str = "", seed: int = 0,
+                explore_mode: bool = True, max_jobs: int = 5,
+                poll_interval: int = 10, max_wait: int = 600):
+        token = _get_token(api_token)
+
+        # Auto-upload image if provided without image_asset_id
+        final_image_asset = image_asset_id.strip()
+        if image is not None and not final_image_asset:
+            logger.info(f"{LOG} Runway Aleph: auto-uploading conditioning image...")
+            final_image_asset = _runway_upload_image(token, image, email)
+
+        url = f"{BASE_URL}/runwayml/gen4/video"
+        body = {
+            "video_assetId": video_asset_id,
+            "text_prompt": text_prompt,
+            "exploreMode": explore_mode,
+            "maxJobs": max_jobs,
+        }
+        if final_image_asset:
+            body["image_assetId"] = final_image_asset
+        if seed != 0:
+            body["seed"] = seed
+        if email.strip():
+            body["email"] = email.strip()
+
+        logger.info(
+            f"{LOG} Runway Aleph: video={video_asset_id[:40]}..., "
+            f"image={'yes' if final_image_asset else 'none'}, prompt='{text_prompt[:60]}'"
+        )
+        artifacts, task_id = _runway_submit_and_poll(
+            url, body, token, "Runway aleph gen4/video", poll_interval, max_wait
+        )
+        video_url = artifacts[0]["url"]
+        video_path = _download_file(video_url, ".mp4")
+        return (video_url, video_path, task_id)
+
+
+# ── Node 26: Runway Gen3 Turbo Expand ─────────────────────────────────────────
+class UseapiRunwayGen3TurboExpand:
+    """Expand (outpaint) a Runway Gen3 Turbo video to a different aspect ratio.
+
+    Requires a video asset. Optionally accepts an image asset for the first frame,
+    text prompt, seconds, seed, and the target outpaint aspect ratio.
+    Async: creates task, polls until SUCCEEDED.
+    """
+
+    CATEGORY = "Useapi.net/Runway"
+    FUNCTION = "execute"
+    OUTPUT_NODE = True
+    RETURN_TYPES = ("STRING", "STRING", "STRING")
+    RETURN_NAMES = ("video_url", "video_path", "task_id")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "video_asset_id": ("STRING", {"default": ""}),
+            },
+            "optional": {
+                "api_token": ("STRING", {"default": ""}),
+                "image_asset_id": ("STRING", {"default": ""}),
+                "text_prompt": ("STRING", {"multiline": True, "default": ""}),
+                "seconds": (["10", "5"],),
+                "outpaint_aspect_ratio": (["landscape", "portrait"],),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 4294967294}),
+                "email": ("STRING", {"default": ""}),
+                "explore_mode": ("BOOLEAN", {"default": True}),
+                "max_jobs": ("INT", {"default": 5, "min": 1, "max": 10}),
+                "poll_interval": ("INT", {"default": 10, "min": 5, "max": 60}),
+                "max_wait": ("INT", {"default": 300, "min": 60, "max": 1800}),
+            },
+        }
+
+    def execute(self, video_asset_id: str, api_token: str = "",
+                image_asset_id: str = "", text_prompt: str = "",
+                seconds: str = "10", outpaint_aspect_ratio: str = "landscape",
+                seed: int = 0, email: str = "",
+                explore_mode: bool = True, max_jobs: int = 5,
+                poll_interval: int = 10, max_wait: int = 300):
+        token = _get_token(api_token)
+        url = f"{BASE_URL}/runwayml/gen3turbo/expand"
+        body = {
+            "videoAssetId": video_asset_id,
+            "seconds": int(seconds),
+            "outpaint_aspect_ratio": outpaint_aspect_ratio,
+            "exploreMode": explore_mode,
+            "maxJobs": max_jobs,
+        }
+        if image_asset_id.strip():
+            body["imageAssetId"] = image_asset_id.strip()
+        if text_prompt.strip():
+            body["text_prompt"] = text_prompt.strip()
+        if seed != 0:
+            body["seed"] = seed
+        if email.strip():
+            body["email"] = email.strip()
+
+        logger.info(
+            f"{LOG} Runway Gen3 Turbo Expand: video={video_asset_id[:40]}..., "
+            f"aspect={outpaint_aspect_ratio}"
+        )
+        artifacts, task_id = _runway_submit_and_poll(
+            url, body, token, "Runway gen3turbo expand", poll_interval, max_wait
+        )
+        video_url = artifacts[0]["url"]
+        video_path = _download_file(video_url, ".mp4")
+        return (video_url, video_path, task_id)
+
+
+# ── Node 27: Runway Gen3 Turbo Act One ────────────────────────────────────────
+class UseapiRunwayGen3TurboActOne:
+    """Transfer motion from a driving video to a character using Runway Gen3 Turbo Act One.
+
+    Requires a driving video asset and a character image/video asset.
+    Async: creates task, polls until SUCCEEDED.
+    """
+
+    CATEGORY = "Useapi.net/Runway"
+    FUNCTION = "execute"
+    OUTPUT_NODE = True
+    RETURN_TYPES = ("STRING", "STRING", "STRING")
+    RETURN_NAMES = ("video_url", "video_path", "task_id")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "driving_asset_id": ("STRING", {"default": ""}),
+                "character_asset_id": ("STRING", {"default": ""}),
+            },
+            "optional": {
+                "api_token": ("STRING", {"default": ""}),
+                "email": ("STRING", {"default": ""}),
+                "aspect_ratio": (["portrait", "landscape", "16:9", "9:16", "1:1"],),
+                "motion_multiplier": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 3.0, "step": 0.1}),
+                "explore_mode": ("BOOLEAN", {"default": True}),
+                "max_jobs": ("INT", {"default": 5, "min": 1, "max": 10}),
+                "poll_interval": ("INT", {"default": 10, "min": 5, "max": 60}),
+                "max_wait": ("INT", {"default": 300, "min": 60, "max": 1800}),
+            },
+        }
+
+    def execute(self, driving_asset_id: str, character_asset_id: str,
+                api_token: str = "", email: str = "",
+                aspect_ratio: str = "portrait", motion_multiplier: float = 1.0,
+                explore_mode: bool = True, max_jobs: int = 5,
+                poll_interval: int = 10, max_wait: int = 300):
+        token = _get_token(api_token)
+        url = f"{BASE_URL}/runwayml/gen3turbo/actone"
+        body = {
+            "driving_assetId": driving_asset_id,
+            "character_assetId": character_asset_id,
+            "aspect_ratio": aspect_ratio,
+            "exploreMode": explore_mode,
+            "maxJobs": max_jobs,
+        }
+        if motion_multiplier != 1.0:
+            body["motion_multiplier"] = motion_multiplier
+        if email.strip():
+            body["email"] = email.strip()
+
+        logger.info(
+            f"{LOG} Runway Gen3 Turbo Act One: driving={driving_asset_id[:40]}..., "
+            f"character={character_asset_id[:40]}..."
+        )
+        artifacts, task_id = _runway_submit_and_poll(
+            url, body, token, "Runway gen3turbo actone", poll_interval, max_wait
+        )
+        video_url = artifacts[0]["url"]
+        video_path = _download_file(video_url, ".mp4")
+        return (video_url, video_path, task_id)
+
+
 # ── ComfyUI Registration ──────────────────────────────────────────────────────
 NODE_CLASS_MAPPINGS = {
     "UseapiTokenFromEnv":             UseapiTokenFromEnv,
@@ -2074,6 +2284,9 @@ NODE_CLASS_MAPPINGS = {
     "UseapiRunwaySuperSlowMotion":    UseapiRunwaySuperSlowMotion,
     "UseapiRunwayTranscribe":         UseapiRunwayTranscribe,
     "UseapiRunwayGen3TurboExtend":    UseapiRunwayGen3TurboExtend,
+    "UseapiRunwayAleph":              UseapiRunwayAleph,
+    "UseapiRunwayGen3TurboExpand":    UseapiRunwayGen3TurboExpand,
+    "UseapiRunwayGen3TurboActOne":    UseapiRunwayGen3TurboActOne,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "UseapiTokenFromEnv":             "Useapi Token From Env",
@@ -2100,4 +2313,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "UseapiRunwaySuperSlowMotion":    "Useapi Runway Super Slow Motion",
     "UseapiRunwayTranscribe":         "Useapi Runway Transcribe",
     "UseapiRunwayGen3TurboExtend":    "Useapi Runway Gen3 Turbo Extend",
+    "UseapiRunwayAleph":              "Useapi Runway Aleph",
+    "UseapiRunwayGen3TurboExpand":    "Useapi Runway Gen3 Turbo Expand",
+    "UseapiRunwayGen3TurboActOne":    "Useapi Runway Gen3 Turbo Act One",
 }
