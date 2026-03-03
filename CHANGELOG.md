@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.3] - 2026-03-03
+
+### Fixed
+- **`UseapiVeoExtend` persistent 400 "All operations failed"**: Added optional `email` field to `UseapiVeoExtend`. The Useapi.net multi-tenant API routes requests to the correct Google account via `email`; without it, extend requests were routed to a different account than the one that generated the source video, causing the error. Pass the same email used in `UseapiVeoGenerate`.
+- **Improved error message for "All operations failed" (400)**: `_check_status` now detects this specific response and raises a targeted, context-aware message. Veo Extend calls get guidance about passing `email` and trying a different prompt; all other endpoints get a generic account-routing hint.
+
 ## [0.5.1] - 2026-03-03
 
 ### Added
