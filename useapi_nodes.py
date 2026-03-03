@@ -734,7 +734,7 @@ class UseapiVeoGenerate:
                 f"The API might have changed. Detail: {_redact_token(json.dumps(data), token)}"
             )
 
-        logger.info(f"{LOG} Veo Generate: complete. mediaGenerationId={media_gen_id[:50]}...")
+        logger.info(f"{LOG} Veo Generate: complete. mediaGenerationId={media_gen_id!r}")
         video_path = _download_file(video_url, ".mp4")
         return (video_url, video_path, media_gen_id)
 
@@ -836,6 +836,7 @@ class UseapiVeoExtend:
             media_gen_id = media_list[0].get("mediaGenerationId", "")
         if not video_url:
             raise RuntimeError(f"{LOG} Veo extend: no video URL in response.")
+        logger.info(f"{LOG} Veo Extend: complete. mediaGenerationId={media_gen_id!r}")
         video_path = _download_file(video_url, ".mp4")
         return (video_url, video_path, media_gen_id)
 
@@ -1640,17 +1641,27 @@ class UseapiVeoConcatenate:
         trims = [(kwargs.get(f"trim_start_{i}", 0.0), kwargs.get(f"trim_end_{i}", 0.0))
                  for i in range(1, 11)]
         media_list = []
-        for mgid, (ts, te) in zip(ids, trims):
+        for i, (mgid, (ts, te)) in enumerate(zip(ids, trims), start=1):
             if mgid.strip():
-                media_list.append({
-                    "mediaGenerationId": mgid.strip(),
-                    "trimStart": ts,
-                    "trimEnd": te,
-                })
+                val = mgid.strip()
+                if val.startswith(("http://", "https://", "/", "\\")):
+                    raise ValueError(
+                        f"{LOG} Veo Concatenate: media_{i} contains a URL or file path instead of a "
+                        f"mediaGenerationId. Connect the 'media_generation_id' output (not 'video_url' "
+                        f"or 'video_path') from UseapiVeoGenerate / UseapiVeoExtend. Got: {val[:80]!r}"
+                    )
+                item: dict = {"mediaGenerationId": val}
+                if ts:
+                    item["trimStart"] = ts
+                if te:
+                    item["trimEnd"] = te
+                media_list.append(item)
         if len(media_list) < 2:
             raise ValueError(f"{LOG} Veo Concatenate: at least 2 mediaGenerationIds required.")
         url = f"{BASE_URL}/google-flow/videos/concatenate"
         body = {"media": media_list}
+        for idx, item in enumerate(media_list):
+            logger.info(f"{LOG} Veo Concatenate: media[{idx}].mediaGenerationId={item['mediaGenerationId']!r}")
         logger.info(f"{LOG} Veo Concatenate: {len(media_list)} videos...")
         data = _submit_with_progress(url, body, token, _ESTIMATED_SECS_VEO_CONCAT, _TIMEOUT_XLONG, "Veo concatenate")
         encoded = data.get("encodedVideo", "")
