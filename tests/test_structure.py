@@ -167,3 +167,13 @@ class TestRunwayTaskIdExtraction(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+class TestVeoGenerateInputs(unittest.TestCase):
+    def test_veo_generate_optional_inputs(self):
+        from useapi_nodes import UseapiVeoGenerate
+        inputs = UseapiVeoGenerate.INPUT_TYPES()
+        optional_inputs = inputs.get("optional", {})
+        self.assertIn("start_image_tensor", optional_inputs)
+        self.assertEqual(optional_inputs["start_image_tensor"], ("IMAGE",))
+        self.assertIn("end_image_tensor", optional_inputs)
+        self.assertEqual(optional_inputs["end_image_tensor"], ("IMAGE",))
