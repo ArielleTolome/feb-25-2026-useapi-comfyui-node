@@ -295,12 +295,19 @@ def _check_status(status: int, body: bytes, url: str, context: str = "", token: 
 
     if status == 400:
         if "all operations failed" in detail.lower():
+            if context.lower().startswith("veo extend"):
+                hint = (
+                    "Make sure you are passing the same 'email' used during video generation, "
+                    "try a different prompt, or generate a new source video. "
+                )
+            else:
+                hint = (
+                    "Check account routing (email), prompt/model compatibility, "
+                    "or regenerate the source media. "
+                )
             raise RuntimeError(
                 f"{label} Bad Request (400). All operations failed on the server. "
-                "This usually means the source video cannot be extended with the current settings. "
-                "Make sure you are passing the same 'email' used during video generation, "
-                "try a different prompt, or generate a new source video. "
-                f"URL: {safe_url}\nDetail: {detail}"
+                f"{hint}URL: {safe_url}\nDetail: {detail}"
             )
         raise RuntimeError(
             f"{label} Bad Request (400). Please check your input parameters "
