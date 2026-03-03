@@ -294,6 +294,21 @@ def _check_status(status: int, body: bytes, url: str, context: str = "", token: 
     safe_url = _safe_url(url)
 
     if status == 400:
+        if "all operations failed" in detail.lower():
+            if context.lower().startswith("veo extend"):
+                hint = (
+                    "Make sure you are passing the same 'email' used during video generation, "
+                    "try a different prompt, or generate a new source video. "
+                )
+            else:
+                hint = (
+                    "Check account routing (email), prompt/model compatibility, "
+                    "or regenerate the source media. "
+                )
+            raise RuntimeError(
+                f"{label} Bad Request (400). All operations failed on the server. "
+                f"{hint}URL: {safe_url}\nDetail: {detail}"
+            )
         raise RuntimeError(
             f"{label} Bad Request (400). Please check your input parameters "
             f"(prompts, models, aspect ratios). URL: {safe_url}\nDetail: {detail}"
@@ -801,6 +816,7 @@ class UseapiVeoExtend:
             },
             "optional": {
                 "api_token": ("STRING", {"default": ""}),
+                "email": ("STRING", {"default": ""}),
                 "model": (["veo-3.1-fast", "veo-3.1-quality", "veo-3.1-fast-relaxed"],),
                 "count": ("INT", {"default": 1, "min": 1, "max": 4}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 2147483647}),
@@ -809,12 +825,14 @@ class UseapiVeoExtend:
         }
 
     def execute(self, media_generation_id: str, prompt: str, api_token: str = "",
-                model: str = "veo-3.1-fast", count: int = 1, seed: int = 0,
-                captcha_retry: int = 3):
+                email: str = "", model: str = "veo-3.1-fast", count: int = 1,
+                seed: int = 0, captcha_retry: int = 3):
         token = _get_token(api_token)
         url = f"{BASE_URL}/google-flow/videos/extend"
         body = {"mediaGenerationId": media_generation_id, "prompt": prompt,
                 "model": model, "count": count}
+        if email.strip():
+            body["email"] = email.strip()
         if seed != 0:
             body["seed"] = seed & 0x7FFFFFFF
         logger.info(f"{LOG} Veo Extend: mediaGenerationId={media_generation_id[:50]}...")
